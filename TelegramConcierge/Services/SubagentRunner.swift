@@ -318,8 +318,48 @@ actor SubagentRunner {
             }
         }
 
+        // If the loop exhausted maxTurns without a final text and no hard error,
+        // force one more call with tools=[] to let the subagent summarize its work
+        // (mirrors ConversationManager's forced final response).
         if runError == nil && finalText.isEmpty {
-            runError = "Subagent exhausted maxTurns (\(maxTurns)) without returning a final text message"
+            do {
+                try Task.checkCancellation()
+                let forceResponse = try await openRouterService.generateResponse(
+                    messages: messagesForLLM,
+                    imagesDirectory: imagesDirectory,
+                    documentsDirectory: documentsDirectory,
+                    tools: [],
+                    toolResultMessages: toolInteractions.isEmpty ? nil : toolInteractions,
+                    calendarContext: nil,
+                    emailContext: nil,
+                    chunkSummaries: nil,
+                    totalChunkCount: 0,
+                    currentUserMessageId: syntheticUser.id,
+                    turnStartDate: turnStartDate,
+                    finalResponseInstruction: """
+                        You have reached the tool-use limit for this run. \
+                        Provide your final answer NOW — summarize everything you accomplished, \
+                        what files were touched, and what remains to be done.
+                        """,
+                    modelOverride: effectiveModelOverride,
+                    providerOverride: effectiveProviderOverride,
+                    reasoningEffortOverride: effectiveReasoningOverride
+                )
+                markProgress()
+
+                switch forceResponse {
+                case .text(let content, let promptTk, _, let spend):
+                    if let spend { totalSpendUSD += spend }
+                    if let pt = promptTk { lastPromptTokens = pt }
+                    finalText = content
+                case .toolCalls(_, _, _, _, let spend):
+                    // Shouldn't happen with tools=[], but handle gracefully.
+                    if let spend { totalSpendUSD += spend }
+                    runError = "Subagent exhausted maxTurns (\(maxTurns)) without returning a final text message"
+                }
+            } catch {
+                runError = "Subagent exhausted maxTurns (\(maxTurns)) and failed to produce final summary: \(error.localizedDescription)"
+            }
         }
 
         // 8. Diff FilesLedger for files touched during the run.
