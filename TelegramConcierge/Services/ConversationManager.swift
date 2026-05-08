@@ -3974,8 +3974,11 @@ class ConversationManager: ObservableObject {
         // Format previous summaries chronologically
         let previousSummaries = chunkSummaries.sorted { $0.startDate < $1.startDate }.map { $0.summary }
         
-        // Format current conversation context (last ~10 messages of what's happening now)
-        let recentMessages = currentMessages.suffix(10)
+        // Preserve only the immediate continuation after the archived chunk.
+        // It is appended after the source segment in archive prompts, so it can
+        // clarify dangling references without becoming part of the reusable
+        // prefix or dumping unrelated future conversation into summarization.
+        let recentMessages = currentMessages.prefix(2)
         let currentContext: String?
         if !recentMessages.isEmpty {
             currentContext = recentMessages.map { msg in
