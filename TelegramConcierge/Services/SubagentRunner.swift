@@ -264,6 +264,14 @@ actor SubagentRunner {
                     if let spend { totalSpendUSD += spend }
                     if let pt = promptTk { lastPromptTokens = pt }
 
+                    if forceFinish {
+                        let refusedTools = calls.map { $0.function.name }.joined(separator: ", ")
+                        print("[SubagentRunner] Refused tool call(s) during force-finish: \(refusedTools)")
+                        runError = "Subagent reached the context limit and the model attempted to call more tools instead of returning a final summary. No further tools were executed."
+                        finalText = "Subagent stopped at the context limit before it could produce a final summary. It attempted to call additional tools (\(refusedTools)), but those calls were refused to avoid extra side effects or spend."
+                        break loop
+                    }
+
                     // Filter out any tool calls the subagent is not allowed to make.
                     var executableCalls: [ToolCall] = []
                     var blockedResults: [ToolResultMessage] = []
@@ -372,7 +380,9 @@ actor SubagentRunner {
                     if let pt = promptTk { lastPromptTokens = pt }
                     finalText = content
                 case .toolCalls(_, _, _, _, let spend):
-                    // Shouldn't happen with tools=[], but handle gracefully.
+                    // Tools remain available for prompt-cache stability, so a model
+                    // can still request them here. Never execute tools from a
+                    // force-finish response.
                     if let spend { totalSpendUSD += spend }
                     runError = "Subagent exhausted maxTurns (\(maxTurns)) without returning a final text message"
                 }
