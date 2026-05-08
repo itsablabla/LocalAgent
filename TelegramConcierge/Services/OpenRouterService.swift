@@ -687,6 +687,7 @@ actor OpenRouterService {
         currentUserMessageId: UUID? = nil,
         turnStartDate: Date? = nil,
         finalResponseInstruction: String? = nil,
+        tailSystemMessage: String? = nil,
         modelOverride: String? = nil,
         providerOverride: [String]? = nil,
         reasoningEffortOverride: String? = nil,
@@ -1253,6 +1254,17 @@ actor OpenRouterService {
             }
         }
         
+        // Tail system message — used by force-finish paths to instruct the model
+        // to stop calling tools and summarize, WITHOUT modifying the system prompt
+        // or tool list. This preserves the prompt cache prefix for the entire
+        // preceding context (system + messages + tool interactions).
+        if let tail = tailSystemMessage, !tail.isEmpty {
+            apiMessages.append(OpenRouterAPIMessage(
+                role: "system",
+                content: .text(tail)
+            ))
+        }
+
         // Ambient status tail — background bash + subagents currently running.
         // Appended AFTER the Anthropic cache breakpoint (placed above), so per-turn
         // drift in "running 12s / 35s / 1m 02s" does not invalidate any cached prefix.

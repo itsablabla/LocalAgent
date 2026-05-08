@@ -1510,6 +1510,11 @@ class ConversationManager: ObservableObject {
 
         var sessionEvents: [SubagentSessionEvent] = []
 
+        // Capture the tools/deferred summaries from the last loop iteration so the
+        // force-finish call can use the identical parameters — preserving prompt cache.
+        var lastToolsForRound: [ToolDefinition] = []
+        var lastDeferredSummaries: [(name: String, description: String, toolCount: Int)] = []
+
         // Track prompt_tokens across rounds to compute per-interaction deltas
         var prevRoundPromptTokens: Int? = lastPromptTokens
         let turnStartPromptTokens = lastPromptTokens
@@ -1549,6 +1554,8 @@ class ConversationManager: ObservableObject {
                 hasDeferredMCPs: !deferredSummaries.isEmpty
             )
             let toolsForRound = nativeTools + mainMcpTools
+            lastToolsForRound = toolsForRound
+            lastDeferredSummaries = deferredSummaries
             let allowedToolNames = Set(toolsForRound.map { $0.function.name })
             let response = try await openRouterService.generateResponse(
                 messages: messagesForLLM,
@@ -1782,9 +1789,16 @@ class ConversationManager: ObservableObject {
                     emailContext = refreshed.email
                 }
                 if midLoopResult == .exhausted {
+                    // Drop the last tool interaction — it's what pushed the context
+                    // over the limit and cannot be included without exceeding the budget.
+                    if !toolInteractions.isEmpty {
+                        let dropped = toolInteractions.removeLast()
+                        let droppedTools = dropped.assistantMessage.toolCalls.map { $0.function.name }.joined(separator: ", ")
+                        print("[ConversationManager] Dropped overflowing tool interaction (\(droppedTools)) to stay within context budget")
+                    }
                     didHitContextLimit = true
                     statusMessage = "Context budget exhausted, preparing response..."
-                    print("[ConversationManager] Context budget exhausted after pruning — all historical content already pruned. Forcing final response.")
+                    print("[ConversationManager] Context budget exhausted — forcing final response without the overflowing interaction.")
                     break toolLoop
                 }
 
@@ -1828,24 +1842,31 @@ class ConversationManager: ObservableObject {
             print("[ConversationManager] Safety tool round limit (\(maxToolRoundsSafetyLimit)) reached, forcing final response")
         }
 
-        // Force one final call WITHOUT tools to produce a user-facing response
-        let finalResponseInstruction: String
+        // Force one final call to produce a user-facing response.
+        // The stop instruction is injected as a tail system message AFTER the tool
+        // interactions, preserving the prompt cache prefix (system prompt + messages
+        // + tool interactions are identical to the previous request).
+        let forceFinishTail: String
         if didHitContextLimit {
-            finalResponseInstruction = """
-            The context budget for this turn has been exhausted. All prunable historical content has already been removed, \
-            but the current turn's tool interactions have grown beyond the context limit. \
-            Summarize your progress so far and provide the best possible response to the user. \
-            If the task is incomplete, clearly state what remains so the user can continue in a follow-up message.
+            forceFinishTail = """
+            [CONTEXT LIMIT] This turn has reached the maximum allowed context window. \
+            All prunable historical content has been removed and the last tool interaction \
+            was discarded because it exceeded the remaining budget. \
+            Do NOT call any more tools. Summarize your progress so far: what you accomplished, \
+            what you found, and what remains incomplete. Provide the best possible response to the user.
             """
         } else if didHitToolSpendLimit {
-            finalResponseInstruction = """
-            The tool spend limit for this turn has been reached (spent approximately $\(formatUSD(cumulativeToolSpendUSD)), limit $\(formatUSD(toolSpendLimitPerTurnUSD))).
-            Provide the best possible final response to the user using the information you already have. Do not call additional tools.
+            forceFinishTail = """
+            [SPEND LIMIT] The tool spend limit for this turn has been reached \
+            (spent approximately $\(formatUSD(cumulativeToolSpendUSD)), limit $\(formatUSD(toolSpendLimitPerTurnUSD))). \
+            Do NOT call any more tools. Provide the best possible response to the user \
+            using the information you already have.
             """
         } else {
-            finalResponseInstruction = """
-            You have reached the tool-round safety limit for this turn.
-            Provide the best possible final response to the user using the information you already have. Do not call additional tools.
+            forceFinishTail = """
+            [ROUND LIMIT] You have reached the maximum number of tool rounds for this turn. \
+            Do NOT call any more tools. Provide the best possible response to the user \
+            using the information you already have.
             """
         }
 
@@ -1854,7 +1875,7 @@ class ConversationManager: ObservableObject {
             messages: messagesForLLM,
             imagesDirectory: imagesDirectory,
             documentsDirectory: documentsDirectory,
-            tools: nil,  // No tools to force text response
+            tools: lastToolsForRound,
             toolResultMessages: toolInteractions,
             calendarContext: calendarContext,
             emailContext: emailContext,
@@ -1862,7 +1883,8 @@ class ConversationManager: ObservableObject {
             totalChunkCount: totalChunkCount,
             currentUserMessageId: currentUserMessageId,
             turnStartDate: systemPromptDate,
-            finalResponseInstruction: finalResponseInstruction
+            tailSystemMessage: forceFinishTail,
+            deferredMCPSummaries: lastDeferredSummaries.isEmpty ? nil : lastDeferredSummaries
         )
         if let finalSpendUSD = spendUSD(from: finalResponse), finalSpendUSD > 0 {
             KeychainHelper.recordOpenRouterSpend(finalSpendUSD)

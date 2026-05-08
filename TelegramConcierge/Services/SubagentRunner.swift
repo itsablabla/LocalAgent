@@ -228,12 +228,14 @@ actor SubagentRunner {
                 try checkStaleness()
 
                 // If context already exceeds the turn budget, force a final response.
+                // Tools and system prompt stay identical to preserve prompt cache;
+                // the stop instruction goes in a tail system message instead.
                 let forceFinish = lastPromptTokens.map { $0 >= turnTokenBudget } ?? false
                 let response = try await openRouterService.generateResponse(
                     messages: messagesForLLM,
                     imagesDirectory: imagesDirectory,
                     documentsDirectory: documentsDirectory,
-                    tools: forceFinish ? [] : filteredTools,
+                    tools: filteredTools,
                     toolResultMessages: toolInteractions.isEmpty ? nil : toolInteractions,
                     calendarContext: nil,
                     emailContext: nil,
@@ -241,9 +243,10 @@ actor SubagentRunner {
                     totalChunkCount: 0,
                     currentUserMessageId: syntheticUser.id,
                     turnStartDate: turnStartDate,
-                    finalResponseInstruction: forceFinish
-                        ? "[CONTEXT BUDGET EXHAUSTED] Your context has reached the token limit for this turn. Provide your final answer NOW — summarize your progress and state what remains."
-                        : subagentType.systemPromptSuffix,
+                    finalResponseInstruction: subagentType.systemPromptSuffix,
+                    tailSystemMessage: forceFinish
+                        ? "[CONTEXT LIMIT] This turn has reached the maximum allowed context window. The last tool interaction was discarded because it exceeded the remaining budget. Do NOT call any more tools. Provide your final answer NOW — summarize everything you accomplished, what files were touched, what you discovered, and what remains to be done."
+                        : nil,
                     modelOverride: effectiveModelOverride,
                     providerOverride: effectiveProviderOverride,
                     reasoningEffortOverride: effectiveReasoningOverride
@@ -305,6 +308,20 @@ actor SubagentRunner {
                         assistantMessage: assistantMessage,
                         results: ordered
                     ))
+
+                    // Pre-flight budget check: if the new interaction pushed us over
+                    // the turn budget, drop it and force-finish. The model never sees
+                    // the oversized result — the forced response goes out under budget.
+                    if let pt = lastPromptTokens {
+                        let lastInteraction = toolInteractions[toolInteractions.count - 1]
+                        let interactionTokens = Self.estimatedInteractionTokens(lastInteraction)
+                        if pt + interactionTokens >= turnTokenBudget {
+                            let dropped = toolInteractions.removeLast()
+                            let droppedTools = dropped.assistantMessage.toolCalls.map { $0.function.name }.joined(separator: ", ")
+                            print("[SubagentRunner] Dropped overflowing tool interaction (\(droppedTools)) — context (~\(pt) + ~\(interactionTokens)) exceeds turn budget (\(turnTokenBudget))")
+                            break loop
+                        }
+                    }
                 }
             } catch is CancellationError {
                 runError = "Subagent cancelled"
@@ -319,8 +336,9 @@ actor SubagentRunner {
         }
 
         // If the loop exhausted maxTurns without a final text and no hard error,
-        // force one more call with tools=[] to let the subagent summarize its work
-        // (mirrors ConversationManager's forced final response).
+        // force one more call to let the subagent summarize its work. Tools and
+        // system prompt stay identical to preserve prompt cache; the stop instruction
+        // goes in a tail system message.
         if runError == nil && finalText.isEmpty {
             do {
                 try Task.checkCancellation()
@@ -328,7 +346,7 @@ actor SubagentRunner {
                     messages: messagesForLLM,
                     imagesDirectory: imagesDirectory,
                     documentsDirectory: documentsDirectory,
-                    tools: [],
+                    tools: filteredTools,
                     toolResultMessages: toolInteractions.isEmpty ? nil : toolInteractions,
                     calendarContext: nil,
                     emailContext: nil,
@@ -336,10 +354,11 @@ actor SubagentRunner {
                     totalChunkCount: 0,
                     currentUserMessageId: syntheticUser.id,
                     turnStartDate: turnStartDate,
-                    finalResponseInstruction: """
-                        You have reached the tool-use limit for this run. \
-                        Provide your final answer NOW — summarize everything you accomplished, \
-                        what files were touched, and what remains to be done.
+                    finalResponseInstruction: subagentType.systemPromptSuffix,
+                    tailSystemMessage: """
+                        [ROUND LIMIT] You have reached the maximum number of tool rounds for this run. \
+                        Do NOT call any more tools. Provide your final answer NOW — summarize everything \
+                        you accomplished, what files were touched, and what remains to be done.
                         """,
                     modelOverride: effectiveModelOverride,
                     providerOverride: effectiveProviderOverride,
@@ -554,6 +573,20 @@ actor SubagentRunner {
     }
 
     // MARK: - Helpers
+
+    /// Rough token estimate for a single tool interaction (~4 chars/token).
+    /// Used by the pre-flight budget check to decide if the interaction fits.
+    private static func estimatedInteractionTokens(_ interaction: ToolInteraction) -> Int {
+        var tokens = (interaction.assistantMessage.content?.count ?? 0) / 4
+        for call in interaction.assistantMessage.toolCalls {
+            tokens += call.function.arguments.count / 4
+            tokens += call.function.name.count / 4 + 20
+        }
+        for result in interaction.results {
+            tokens += result.content.count / 4 + 20
+        }
+        return max(tokens, 1)
+    }
 
     private static func capToBytes(_ s: String, limit: Int) -> String {
         let data = Data(s.utf8)
