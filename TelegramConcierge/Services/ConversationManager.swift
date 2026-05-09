@@ -2999,6 +2999,9 @@ class ConversationManager: ObservableObject {
         ),
            let anchor = pruneSummaryAnchorIndex(plan: plan, compressedIndices: compressedIndices, messageCount: messagesForLLM.count) {
             appendPrunedContextSummary(summary, toMessageAt: anchor)
+            // Mid-loop pruning has two live copies: durable `messages` and the
+            // in-flight prompt snapshot. Keep both in sync so the current tool
+            // loop sees the new summary and the summary also survives the turn.
             if messagesForLLM.indices.contains(anchor) {
                 if let existing = messagesForLLM[anchor].prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !existing.isEmpty {
