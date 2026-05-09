@@ -1037,19 +1037,27 @@ actor ConversationArchiveService {
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .short
 
-        let extractionContext = SummarizationContext(
-            personaContext: existingContext.isEmpty ? context.personaContext : existingContext,
-            assistantName: context.assistantName,
-            userName: context.userName,
-            previousSummaries: context.previousSummaries,
-            currentConversationContext: nil
-        )
-        let sharedContextPrompt = archiveSharedContextPrompt(for: extractionContext)
+        let sharedContextPrompt = archiveSharedContextPrompt(for: context)
+        let existingContextBlock: String
+        if existingContext.isEmpty {
+            existingContextBlock = "(No existing user context yet)"
+        } else {
+            existingContextBlock = """
+            EXISTING USER CONTEXT FOR DEDUPLICATION
+            The following is the current saved user profile. Use it only to avoid outputting duplicate facts. Do not rewrite, summarize, or emit facts that are already present here.
+            ---
+            \(existingContext)
+            ---
+            END EXISTING USER CONTEXT FOR DEDUPLICATION
+            """
+        }
 
         let systemPrompt = """
         You are analyzing a conversation segment to extract NEW durable user-profile facts.
 
         Use the ARCHIVE MEMORY CONTEXT above only for deduplication and interpretation. Extract facts ONLY from the conversation segment in the user message. Do not extract facts that appear only in previous summaries, user profile context, or the immediate continuation after the segment.
+
+        \(existingContextBlock)
 
         OUTPUT FORMAT:
         - If there are NO new durable facts, respond with exactly: NO_CHANGES
