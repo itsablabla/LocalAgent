@@ -684,6 +684,12 @@ actor ConversationArchiveService {
 
         print("[ArchiveService] Consolidated \(chunks.count) chunks into \(consolidatedId.uuidString.prefix(8))... (\(totalTokens) tokens)")
 
+        // Refresh historical meta-summaries immediately while we're already in
+        // the archive lane. Delaying this until the next prompt-context fetch
+        // can make a future main-agent turn pay for archive work and disturb
+        // the main prompt cache.
+        await refreshHistoricalMetaSummariesIfNeeded(recentConsolidatedCount: 5)
+
         // Restructure user context at consolidation time (~every 4 chunks).
         // After several append-only additions, the context may have duplicates or could
         // benefit from reorganization. This does a full intelligent merge.
