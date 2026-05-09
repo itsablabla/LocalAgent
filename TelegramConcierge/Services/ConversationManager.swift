@@ -2696,6 +2696,13 @@ class ConversationManager: ObservableObject {
         [END PRUNE SUMMARY REQUEST]
         """
 
+        let summaryStart = Date()
+        DebugTelemetry.log(
+            .info,
+            summary: "prune summary started",
+            detail: manifest
+        )
+
         do {
             let response = try await openRouterService.generateResponse(
                 messages: sourceMessages,
@@ -2710,19 +2717,38 @@ class ConversationManager: ObservableObject {
                 currentUserMessageId: currentUserMessageId,
                 turnStartDate: turnStartDate,
                 tailSystemMessage: tail,
-                deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries,
-                toolChoice: "none"
+                deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {
             case .text(let content, _, _, _):
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                DebugTelemetry.log(
+                    .info,
+                    summary: "prune summary completed",
+                    detail: "chars: \(trimmed.count)",
+                    durationMs: Int(Date().timeIntervalSince(summaryStart) * 1000)
+                )
                 return trimmed.isEmpty ? nil : String(trimmed.prefix(8000))
             case .toolCalls:
                 print("[ConversationManager] Prune summary request returned tool calls; falling back to compact log summary")
+                DebugTelemetry.log(
+                    .info,
+                    summary: "prune summary fallback: model returned tool calls",
+                    detail: manifest,
+                    durationMs: Int(Date().timeIntervalSince(summaryStart) * 1000),
+                    isError: true
+                )
                 return fallbackPrunedContextSummary(plan: plan, compressedIndices: compressedIndices, sourceMessages: sourceMessages)
             }
         } catch {
             print("[ConversationManager] Failed to generate prune summary: \(error)")
+            DebugTelemetry.log(
+                .info,
+                summary: "prune summary fallback: request failed",
+                detail: "\(error)",
+                durationMs: Int(Date().timeIntervalSince(summaryStart) * 1000),
+                isError: true
+            )
             return fallbackPrunedContextSummary(plan: plan, compressedIndices: compressedIndices, sourceMessages: sourceMessages)
         }
     }
