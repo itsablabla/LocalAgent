@@ -2716,7 +2716,7 @@ class ConversationManager: ObservableObject {
                 totalChunkCount: totalChunkCount,
                 currentUserMessageId: currentUserMessageId,
                 turnStartDate: turnStartDate,
-                tailSystemMessage: tail,
+                tailUserMessage: tail,
                 deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {

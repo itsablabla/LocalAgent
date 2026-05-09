@@ -698,6 +698,7 @@ actor OpenRouterService {
         turnStartDate: Date? = nil,
         finalResponseInstruction: String? = nil,
         tailSystemMessage: String? = nil,
+        tailUserMessage: String? = nil,
         modelOverride: String? = nil,
         providerOverride: [String]? = nil,
         reasoningEffortOverride: String? = nil,
@@ -1271,6 +1272,16 @@ actor OpenRouterService {
         if let tail = tailSystemMessage, !tail.isEmpty {
             apiMessages.append(OpenRouterAPIMessage(
                 role: "system",
+                content: .text(tail)
+            ))
+        }
+
+        // Temporary user-role maintenance request. Used for internal prompts
+        // that need the model to produce visible text while staying out of
+        // persisted chat history. Appended after cache breakpoints.
+        if let tail = tailUserMessage, !tail.isEmpty {
+            apiMessages.append(OpenRouterAPIMessage(
+                role: "user",
                 content: .text(tail)
             ))
         }
