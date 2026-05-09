@@ -496,6 +496,14 @@ actor OpenRouterService {
             lines.append("Subagent session events: \(events.joined(separator: "; "))")
         }
 
+        if let summary = message.prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            lines.append("""
+            Pruned context summary for the preceding turn(s):
+            \(summary)
+            """)
+        }
+
         guard !lines.isEmpty else { return nil }
 
         return """
@@ -515,6 +523,8 @@ actor OpenRouterService {
     /// Counts only the TEXT footprint: message content + small breadcrumb cost per
     /// attachment (filename + description hint). Does NOT count inline media bytes
     /// or tool interactions — those are managed by the Watermark pruner separately.
+    /// Does NOT count prunedContextSummary either: those summaries are active-context
+    /// system hints only and are stripped before archive chunk storage/summarization.
     ///
     /// For compressible synthetic messages (emails, subagent completions, reminders)
     /// we count the *post-compaction stub* size (~50 tokens) instead of the full
@@ -691,7 +701,8 @@ actor OpenRouterService {
         modelOverride: String? = nil,
         providerOverride: [String]? = nil,
         reasoningEffortOverride: String? = nil,
-        deferredMCPSummaries: [(name: String, description: String, toolCount: Int)]? = nil
+        deferredMCPSummaries: [(name: String, description: String, toolCount: Int)]? = nil,
+        toolChoice: String? = nil
     ) async throws -> LLMResponse {
         guard isLMStudio || !apiKey.isEmpty else {
             throw OpenRouterError.notConfigured
@@ -1318,6 +1329,7 @@ actor OpenRouterService {
             model: effectiveModel,
             messages: apiMessages,
             tools: tools,
+            toolChoice: toolChoice,
             provider: providerPrefs,
             reasoning: reasoningConfig
         )
@@ -1563,6 +1575,7 @@ actor OpenRouterService {
             model: descriptionModel,
             messages: apiMessages,
             tools: nil,
+            toolChoice: nil,
             provider: usingLMStudioForDescriptions ? nil : providers.map { ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil) },
             reasoning: usingLMStudioForDescriptions ? nil : reasoningEffort.map { ReasoningConfig(effort: $0) }
         )
@@ -1661,8 +1674,18 @@ struct OpenRouterRequest: Codable {
     let model: String
     let messages: [OpenRouterAPIMessage]
     let tools: [ToolDefinition]?
+    let toolChoice: String?
     let provider: ProviderPreferences?
     let reasoning: ReasoningConfig?
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case tools
+        case toolChoice = "tool_choice"
+        case provider
+        case reasoning
+    }
 }
 
 struct OpenRouterAPIMessage: Codable {

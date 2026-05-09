@@ -66,6 +66,11 @@ struct Message: Identifiable, Codable, Equatable {
     // Compact tool log — generated at turn end, used as fallback when toolInteractions are pruned
     var compactToolLog: String?
 
+    // LLM-generated summary of heavy context pruned after this turn (tool
+    // calls/results/reasoning, media, or synthetic bodies). Rendered as
+    // chronological system context, not as a user/assistant chat message.
+    var prunedContextSummary: String?
+
     // When true, inline multimodal data (images/PDFs) is skipped and replaced
     // by text hints with descriptions. Set by the Watermark pruner alongside
     // tool interaction pruning to free context under memory pressure.
@@ -111,6 +116,9 @@ struct Message: Identifiable, Codable, Equatable {
     var displayTokenCount: Int {
         if let measured = measuredTokens { return measured }
         var tokens = max(content.count / 4, 1)
+        if let prunedContextSummary, !prunedContextSummary.isEmpty {
+            tokens += prunedContextSummary.count / 4
+        }
         let mediaTokensPerFile = mediaPruned ? 50 : 1500
         tokens += mediaFileCount * mediaTokensPerFile
         if let measuredTools = measuredToolTokens {
@@ -171,6 +179,7 @@ struct Message: Identifiable, Codable, Equatable {
         subagentSessionEvents: [SubagentSessionEvent] = [],
         toolInteractions: [ToolInteraction] = [],
         compactToolLog: String? = nil,
+        prunedContextSummary: String? = nil,
         mediaPruned: Bool = false,
         measuredToolTokens: Int? = nil,
         measuredTokens: Int? = nil,
@@ -194,6 +203,7 @@ struct Message: Identifiable, Codable, Equatable {
         self.subagentSessionEvents = subagentSessionEvents
         self.toolInteractions = toolInteractions
         self.compactToolLog = compactToolLog
+        self.prunedContextSummary = prunedContextSummary
         self.mediaPruned = mediaPruned
         self.measuredToolTokens = measuredToolTokens
         self.measuredTokens = measuredTokens
@@ -208,7 +218,7 @@ struct Message: Identifiable, Codable, Equatable {
         case imageFileNames, documentFileNames, imageFileSizes, documentFileSizes
         case referencedImageFileNames, referencedDocumentFileNames
         case referencedDocumentFileSizes
-        case downloadedDocumentFileNames, editedFilePaths, generatedFilePaths, accessedProjectIds, subagentSessionEvents, toolInteractions, compactToolLog, mediaPruned, measuredToolTokens, measuredTokens, kind
+        case downloadedDocumentFileNames, editedFilePaths, generatedFilePaths, accessedProjectIds, subagentSessionEvents, toolInteractions, compactToolLog, prunedContextSummary, mediaPruned, measuredToolTokens, measuredTokens, kind
         // Legacy single-value fields (for decoding old data)
         case imageFileName, documentFileName, imageFileSize, documentFileSize
         case referencedImageFileName, referencedDocumentFileName
@@ -300,6 +310,9 @@ struct Message: Identifiable, Codable, Equatable {
         // Compact tool log (new field, default nil for old messages)
         compactToolLog = try? container.decodeIfPresent(String.self, forKey: .compactToolLog)
 
+        // Pruned context summary (new field, default nil for old messages)
+        prunedContextSummary = try? container.decodeIfPresent(String.self, forKey: .prunedContextSummary)
+
         // Media pruned flag (new field, default false for old messages)
         mediaPruned = (try? container.decodeIfPresent(Bool.self, forKey: .mediaPruned)) ?? false
 
@@ -345,6 +358,7 @@ struct Message: Identifiable, Codable, Equatable {
             try container.encode(toolInteractions, forKey: .toolInteractions)
         }
         try container.encodeIfPresent(compactToolLog, forKey: .compactToolLog)
+        try container.encodeIfPresent(prunedContextSummary, forKey: .prunedContextSummary)
         // Only encode mediaPruned when true (non-default)
         if mediaPruned {
             try container.encode(mediaPruned, forKey: .mediaPruned)
@@ -374,6 +388,7 @@ struct Message: Identifiable, Codable, Equatable {
         lhs.editedFilePaths == rhs.editedFilePaths &&
         lhs.generatedFilePaths == rhs.generatedFilePaths &&
         lhs.accessedProjectIds == rhs.accessedProjectIds &&
+        lhs.prunedContextSummary == rhs.prunedContextSummary &&
         lhs.kind == rhs.kind
     }
 }

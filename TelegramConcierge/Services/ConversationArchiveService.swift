@@ -1585,6 +1585,7 @@ actor ConversationArchiveService {
 
     private func messageNeedsArchiveSanitization(_ message: Message) -> Bool {
         !message.toolInteractions.isEmpty
+            || message.prunedContextSummary != nil
             || message.measuredToolTokens != nil
             || message.measuredTokens != nil
             || (!message.mediaPruned && message.mediaFileCount > 0)
