@@ -1187,10 +1187,23 @@ class ConversationManager: ObservableObject {
         let safeBoundary = min(plan.pruningBoundary, max(messages.count - 1, 0))
         let compressedIndices = compressibleUserMessageIndices(upToIndex: safeBoundary, in: messages)
 
+        // Cache preservation: exclude trailing assistant messages so the
+        // array boundary matches the previous turn's API request. That
+        // request used messagesForLLM (snapshot taken before the assistant
+        // responded), so the last cached message is the user's triggering
+        // message. Including the assistant response would place Anthropic
+        // cache breakpoint 2 on a never-cached message, causing a full
+        // cache miss on everything after the system prompt. The protected
+        // turn's tools aren't being pruned, so no information is lost.
+        var messagesForSummary = messages
+        if let last = messagesForSummary.last, last.role == .assistant {
+            messagesForSummary.removeLast()
+        }
+
         if let summary = await generatePrunedContextSummary(
             plan: plan,
             compressedIndices: compressedIndices,
-            sourceMessages: messages,
+            sourceMessages: messagesForSummary,
             tools: toolsForSummary,
             calendarContext: frozenContext.calendar,
             emailContext: frozenContext.email,
