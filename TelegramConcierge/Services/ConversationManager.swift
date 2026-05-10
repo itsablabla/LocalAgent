@@ -2693,7 +2693,7 @@ class ConversationManager: ObservableObject {
 
         let tail = """
         [PRUNE SUMMARY REQUEST - system maintenance]
-        Do NOT call tools.
+        Tool use is disabled for this maintenance pass. Do NOT call tools. Do not emit tool calls. Return plain text only.
         The manifest below identifies the exact earlier turn content that is about to be pruned. The actual content is already present in the conversation above; do not expect it to be repeated here.
         Summarize ONLY the identified soon-to-be-pruned parts of the conversation above:
         - tool calls, tool outputs, and assistant reasoning for listed tool-interaction turns
