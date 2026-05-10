@@ -313,7 +313,37 @@ enum ApplyPatch {
                 }
             }
 
-            let matches = findWindowMatches(window: fromLines, in: working)
+            var matches = findWindowMatches(window: fromLines, in: working)
+            // Fallback: strict match failed. Common cause is the model omitting
+            // the leading marker space on context lines, so the parser ate one
+            // space of real indent. Retry with a whitespace-tolerant match and
+            // rebuild fromLines/toLines from the file's actual indentation.
+            var rebuiltFromLines: [String]? = nil
+            var rebuiltToLines: [String]? = nil
+            if matches.isEmpty {
+                let tolerant = findWindowMatchesWhitespaceTolerant(window: fromLines, in: working)
+                var tolerantPick: Int? = nil
+                if tolerant.count == 1 {
+                    tolerantPick = tolerant[0]
+                } else if tolerant.count > 1, let anchor = hunk.anchor {
+                    let disambiguated = tolerant.filter { idx in
+                        let lookBack = max(0, idx - 40)
+                        for j in lookBack..<idx where working[j].contains(anchor) { return true }
+                        return false
+                    }
+                    if disambiguated.count == 1 { tolerantPick = disambiguated[0] }
+                }
+                if let pick = tolerantPick {
+                    let (fixedFrom, fixedTo) = reindentHunk(hunk: hunk, fileSlice: Array(working[pick..<(pick + fromLines.count)]))
+                    rebuiltFromLines = fixedFrom
+                    rebuiltToLines = fixedTo
+                    matches = [pick]
+                }
+            }
+
+            let effectiveFrom = rebuiltFromLines ?? fromLines
+            let effectiveTo = rebuiltToLines ?? toLines
+
             let pickedIndex: Int
             switch matches.count {
             case 0:
@@ -339,7 +369,7 @@ enum ApplyPatch {
                     throw PatchError(message: "hunk in \(path) matches \(matches.count) locations; add an '@@ <anchor>' line or more context to disambiguate")
                 }
             }
-            working.replaceSubrange(pickedIndex..<(pickedIndex + fromLines.count), with: toLines)
+            working.replaceSubrange(pickedIndex..<(pickedIndex + effectiveFrom.count), with: effectiveTo)
         }
         return working.joined(separator: "\n")
     }
@@ -355,6 +385,97 @@ enum ApplyPatch {
             if ok { hits.append(start) }
         }
         return hits
+    }
+
+    /// Match `window` against `source` line-by-line, comparing each line after
+    /// trimming leading/trailing whitespace. Used as a fallback when the model
+    /// drops the codex marker space on context lines (or otherwise drifts on
+    /// indentation). Trimmed content must still be non-empty to count — pure
+    /// whitespace lines match anywhere and would explode the match set.
+    private static func findWindowMatchesWhitespaceTolerant(window: [String], in source: [String]) -> [Int] {
+        guard !window.isEmpty, window.count <= source.count else { return [] }
+        let trimmedWindow = window.map { $0.trimmingCharacters(in: .whitespaces) }
+        // Require at least one non-empty trimmed line to anchor; otherwise we'd
+        // match anywhere a run of blank lines occurs.
+        guard trimmedWindow.contains(where: { !$0.isEmpty }) else { return [] }
+        var hits: [Int] = []
+        for start in 0...(source.count - window.count) {
+            var ok = true
+            for i in 0..<window.count {
+                if source[start + i].trimmingCharacters(in: .whitespaces) != trimmedWindow[i] {
+                    ok = false; break
+                }
+            }
+            if ok { hits.append(start) }
+        }
+        return hits
+    }
+
+    /// Given a hunk and the matching slice of file lines, rebuild fromLines and
+    /// toLines using the file's actual indentation. Context lines are taken
+    /// verbatim from the file. Added lines get a per-line indent delta inferred
+    /// from the nearest patch-vs-file context-line pair (handles the common
+    /// "model dropped one leading space everywhere" case).
+    private static func reindentHunk(hunk: Hunk, fileSlice: [String]) -> ([String], [String]) {
+        // Map each diff row to its position in fromLines (file index) — added
+        // lines have no file index.
+        var fileIdxForDiffRow: [Int?] = []
+        var fileIdx = 0
+        for (kind, _) in hunk.diff {
+            switch kind {
+            case .context, .removed:
+                fileIdxForDiffRow.append(fileIdx)
+                fileIdx += 1
+            case .added:
+                fileIdxForDiffRow.append(nil)
+            }
+        }
+
+        // Compute indent delta from each context-line pair (file indent minus patch indent).
+        // Pick the most common delta as the canonical one to apply to added lines.
+        var deltaCounts: [String: Int] = [:]
+        for (rowIdx, (kind, text)) in hunk.diff.enumerated() {
+            guard kind == .context, let fIdx = fileIdxForDiffRow[rowIdx], fIdx < fileSlice.count else { continue }
+            let fileLine = fileSlice[fIdx]
+            let fileIndent = leadingWhitespace(fileLine)
+            let patchIndent = leadingWhitespace(text)
+            if fileIndent.hasPrefix(patchIndent) {
+                let delta = String(fileIndent.dropFirst(patchIndent.count))
+                deltaCounts[delta, default: 0] += 1
+            }
+        }
+        let canonicalDelta = deltaCounts.max(by: { $0.value < $1.value })?.key ?? ""
+
+        var rebuiltFrom: [String] = []
+        var rebuiltTo: [String] = []
+        for (rowIdx, (kind, text)) in hunk.diff.enumerated() {
+            switch kind {
+            case .context:
+                if let fIdx = fileIdxForDiffRow[rowIdx], fIdx < fileSlice.count {
+                    rebuiltFrom.append(fileSlice[fIdx])
+                    rebuiltTo.append(fileSlice[fIdx])
+                } else {
+                    rebuiltFrom.append(text); rebuiltTo.append(text)
+                }
+            case .removed:
+                if let fIdx = fileIdxForDiffRow[rowIdx], fIdx < fileSlice.count {
+                    rebuiltFrom.append(fileSlice[fIdx])
+                } else {
+                    rebuiltFrom.append(text)
+                }
+            case .added:
+                rebuiltTo.append(canonicalDelta + text)
+            }
+        }
+        return (rebuiltFrom, rebuiltTo)
+    }
+
+    private static func leadingWhitespace(_ s: String) -> String {
+        var end = s.startIndex
+        while end < s.endIndex, s[end] == " " || s[end] == "\t" {
+            end = s.index(after: end)
+        }
+        return String(s[s.startIndex..<end])
     }
 
     // MARK: - Commit
