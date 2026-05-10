@@ -54,6 +54,13 @@ actor TodoStore {
         return todos
     }
 
+    /// Wipe all todos (in-memory and on-disk). Used by Settings ▸ Delete Memory.
+    func clearAll() {
+        loadIfNeeded()
+        todos.removeAll()
+        try? FileManager.default.removeItem(at: storeURL)
+    }
+
     // MARK: - Private
 
     private func loadIfNeeded() {

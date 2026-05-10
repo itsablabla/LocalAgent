@@ -107,6 +107,13 @@ actor FilesLedger {
         }
     }
 
+    /// Wipe the entire ledger (in-memory and on-disk). Used by Settings ▸ Delete Memory.
+    func clearAll() {
+        loadIfNeeded()
+        entries.removeAll()
+        try? FileManager.default.removeItem(at: Self.ledgerURL)
+    }
+
     // MARK: - Persistence
 
     private func loadIfNeeded() {

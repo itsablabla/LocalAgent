@@ -4333,29 +4333,39 @@ class ConversationManager: ObservableObject {
         try? FileManager.default.createDirectory(at: toolAttachmentsDirectory, withIntermediateDirectories: true)
     }
     
-    /// Delete all memory: conversation, chunks, summaries, user context, reminders
-    /// Keeps: Calendar and Contacts
+    /// Delete all memory: conversation, chunks, summaries, user context, reminders,
+    /// files ledger, todos, and subagent session histories.
+    /// Keeps: Calendar and Contacts.
     func deleteAllMemory() async {
         // 1. Clear conversation and images
         clearConversation()
-        
+
         // 2. Clear all archived chunks
         await archiveService.clearAllArchives()
-        
+
         // 3. Clear all reminders
         await ReminderService.shared.clearAllReminders()
-        
+
         // 4. Clear user context from Keychain
         try? KeychainHelper.delete(key: KeychainHelper.userContextKey)
         try? KeychainHelper.delete(key: KeychainHelper.structuredUserContextKey)
-        
+
         // 5. Clear documents directory
         try? FileManager.default.removeItem(at: documentsDirectory)
         try? FileManager.default.createDirectory(at: documentsDirectory, withIntermediateDirectories: true)
-        
+
         // 6. Clear file descriptions
         await FileDescriptionService.shared.clearAll()
-        
+
+        // 7. Clear files ledger (history of every file the agent has touched).
+        await FilesLedger.shared.clearAll()
+
+        // 8. Clear persistent todo list.
+        await TodoStore.shared.clearAll()
+
+        // 9. Clear all subagent session histories (full transcripts + spend).
+        await SubagentSessionRegistry.shared.removeAll()
+
         print("[ConversationManager] All memory deleted")
     }
     

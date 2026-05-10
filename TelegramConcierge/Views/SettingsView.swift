@@ -1100,7 +1100,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 
-                Text("Permanently deletes all conversation history, chunks, summaries, user context, and reminders. Calendar and contacts are preserved.")
+                Text("Permanently deletes all conversation history, chunks, summaries, user context, reminders, files ledger, todos, and subagent session histories. Calendar and contacts are preserved.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
