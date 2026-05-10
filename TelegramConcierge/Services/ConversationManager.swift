@@ -4359,6 +4359,40 @@ class ConversationManager: ObservableObject {
         print("[ConversationManager] All memory deleted")
     }
     
+    /// Build a human-readable text snapshot of the full context the LLM would see.
+    func buildContextSnapshot() async -> String {
+        let frozenContext = await getFrozenSystemContext()
+        let chunkSummaries = await archiveService.getPromptSummaryItems(recentConsolidatedCount: 5)
+        let allChunks = await archiveService.getAllChunks()
+        let totalChunkCount = allChunks.count
+
+        await MCPAgentRouting.refreshFromRegistry()
+        let allMcpTools = await MCPRegistry.shared.allToolDefinitions()
+        let mainMcpTools = MCPAgentRouting.filterMcpTools(
+            forAgent: "main", allTools: allMcpTools, fallbackPatterns: nil
+        )
+        let deferredServerNames = MCPAgentRouting.deferredServers(
+            forAgent: "main", allTools: allMcpTools, fallbackPatterns: nil
+        )
+        let deferredSummaries = await MCPRegistry.shared.serverSummaries(for: deferredServerNames)
+        let serperKey = KeychainHelper.load(key: KeychainHelper.serperApiKeyKey) ?? ""
+        let nativeTools = AvailableTools.all(
+            includeWebSearch: !serperKey.isEmpty,
+            hasDeferredMCPs: !deferredSummaries.isEmpty
+        )
+        let allTools = nativeTools + mainMcpTools
+
+        return await openRouterService.renderContextSnapshot(
+            messages: messages,
+            tools: allTools,
+            calendarContext: frozenContext.calendar,
+            emailContext: frozenContext.email,
+            chunkSummaries: chunkSummaries.isEmpty ? nil : chunkSummaries,
+            totalChunkCount: totalChunkCount,
+            deferredMCPSummaries: deferredSummaries.isEmpty ? nil : deferredSummaries
+        )
+    }
+
     /// Reload all data from disk after Mind restore
     /// This refreshes the conversation and archive service to pick up restored data
     func reloadAfterMindRestore() async {

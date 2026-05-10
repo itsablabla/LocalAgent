@@ -110,6 +110,7 @@ struct SettingsView: View {
     @State private var calendarExportError: String?
     @State private var showingCalendarFilePicker: Bool = false
     @State private var calendarEventCount: Int = 0
+    @State private var isExportingContext: Bool = false
     
     private let telegramService = TelegramBotService()
     private let defaultArchiveChunkSize = 10000
@@ -1054,7 +1055,38 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                 
                 Divider()
-                
+
+                // MARK: Context Snapshot
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Context Snapshot")
+                        .font(.body)
+                    Text("Export the full prompt the agent would receive right now")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Button {
+                    exportContextSnapshot()
+                } label: {
+                    HStack {
+                        if isExportingContext {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "doc.text.magnifyingglass")
+                        }
+                        Text("Download Context")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExportingContext)
+
+                Text("Downloads a text file showing the system prompt, tools, all messages, tool interactions, and metadata — exactly what the LLM sees.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
                 Button {
                     showingDeleteMemoryConfirmation = true
                 } label: {
@@ -2217,6 +2249,37 @@ struct SettingsView: View {
         }
     }
     
+    private func exportContextSnapshot() {
+        isExportingContext = true
+
+        Task {
+            let snapshot = await conversationManager.buildContextSnapshot()
+
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [.plainText]
+            let dateStr = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            savePanel.nameFieldStringValue = "context_snapshot_\(dateStr).txt"
+            savePanel.title = "Export Context Snapshot"
+            savePanel.message = "Save the full LLM context as a text file"
+
+            let response = await savePanel.beginSheetModal(for: NSApp.mainWindow ?? NSWindow())
+
+            guard response == .OK, let url = savePanel.url else {
+                await MainActor.run { isExportingContext = false }
+                return
+            }
+
+            do {
+                try snapshot.write(to: url, atomically: true, encoding: .utf8)
+                await MainActor.run { isExportingContext = false }
+            } catch {
+                print("[SettingsView] Context snapshot export failed: \(error)")
+                await MainActor.run { isExportingContext = false }
+            }
+        }
+    }
+
     private func importCalendar(from url: URL) {
         isImportingCalendar = true
         calendarExportSuccess = nil
