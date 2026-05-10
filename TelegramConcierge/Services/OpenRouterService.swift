@@ -1455,6 +1455,23 @@ actor OpenRouterService {
     
     // MARK: - Context Snapshot
 
+    private func snapshotPreview(_ text: String, maxLength: Int) -> String {
+        text.count > maxLength ? String(text.prefix(maxLength)) + "..." : text
+    }
+
+    private func snapshotPreview(_ value: JSONValue, maxLength: Int) -> String {
+        if case .string(let text) = value {
+            return snapshotPreview(text, maxLength: maxLength)
+        }
+
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(value),
+           let json = String(data: data, encoding: .utf8) {
+            return snapshotPreview(json, maxLength: maxLength)
+        }
+        return snapshotPreview(String(describing: value), maxLength: maxLength)
+    }
+
     /// Build a human-readable text rendering of the full context the LLM would
     /// receive on the next request. Used for debugging prompt cache and context issues.
     func renderContextSnapshot(
@@ -1562,14 +1579,9 @@ actor OpenRouterService {
         out += "=== TOOLS (\(tools.count)) ===\n"
         for tool in tools {
             let params = tool.function.parameters
-            let paramNames: [String]
-            if let props = params?["properties"] as? [String: Any] {
-                paramNames = props.keys.sorted()
-            } else {
-                paramNames = []
-            }
-            let desc = tool.function.description ?? ""
-            let descPreview = desc.count > 120 ? String(desc.prefix(120)) + "..." : desc
+            let paramNames = params.properties.keys.sorted()
+            let desc = tool.function.description
+            let descPreview = snapshotPreview(desc, maxLength: 120)
             out += "  \(tool.function.name)(\(paramNames.joined(separator: ", "))) — \(descPreview)\n"
         }
         out += "\n"
@@ -1600,25 +1612,17 @@ actor OpenRouterService {
             if message.role == .assistant && !message.toolInteractions.isEmpty {
                 for interaction in message.toolInteractions {
                     // Assistant tool calls
-                    if let toolCalls = interaction.assistantMessage.toolCalls {
-                        for tc in toolCalls {
-                            let argsPreview: String
-                            if let args = tc.function.arguments {
-                                argsPreview = args.count > 200 ? String(args.prefix(200)) + "..." : args
-                            } else {
-                                argsPreview = ""
-                            }
-                            out += "  → tool_call: \(tc.function.name)(\(argsPreview))\n"
-                        }
+                    for tc in interaction.assistantMessage.toolCalls {
+                        let argsPreview = snapshotPreview(tc.function.arguments, maxLength: 200)
+                        out += "  → tool_call: \(tc.function.name)(\(argsPreview))\n"
                     }
-                    if let reasoning = interaction.assistantMessage.reasoning,
-                       !reasoning.isEmpty {
-                        let preview = reasoning.count > 300 ? String(reasoning.prefix(300)) + "..." : reasoning
+                    if let reasoning = interaction.assistantMessage.reasoning {
+                        let preview = snapshotPreview(reasoning, maxLength: 300)
                         out += "  [reasoning: \(preview)]\n"
                     }
                     // Tool results
                     for result in interaction.results {
-                        let contentPreview = result.content.count > 300 ? String(result.content.prefix(300)) + "..." : result.content
+                        let contentPreview = snapshotPreview(result.content, maxLength: 300)
                         out += "  ← tool_result (\(result.content.count) chars): \(contentPreview)\n"
                     }
                 }
