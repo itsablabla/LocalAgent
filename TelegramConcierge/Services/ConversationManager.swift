@@ -1153,18 +1153,29 @@ class ConversationManager: ObservableObject {
         )
         let toolsForSummary = nativeTools + mainMcpTools
 
-        // Estimate current context with a rough system prompt estimate
-        var totalTokens = 3000 // System prompt overhead estimate
-        let persona = KeychainHelper.load(key: KeychainHelper.structuredUserContextKey) ?? ""
-        totalTokens += persona.count / 4
+        // Use real prompt_tokens from API when available, fall back to estimation
+        var totalTokens: Int
+        if let real = lastPromptTokens {
+            let addedSinceLastPrompt = estimatedTokensAddedSinceLastPrompt(currentUserMessageId: nil, isLMStudio: providerIsLMStudio)
+            totalTokens = real + addedSinceLastPrompt
+            print("[ConversationManager] Manual prune using real prompt_tokens: \(real) + ~\(addedSinceLastPrompt) new tokens")
+        } else {
+            totalTokens = estimateSystemPromptTokens(
+                calendarContext: frozenContext.calendar,
+                emailContext: frozenContext.email,
+                chunkSummaries: chunkSummaries
+            )
+            for message in messages {
+                totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
+                totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
+            }
+            print("[ConversationManager] Manual prune using estimated tokens: \(totalTokens)")
+        }
 
         var prunableToolTokens = 0
         for (i, message) in messages.enumerated() {
-            totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
-            let msgToolTokens = toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-            totalTokens += msgToolTokens
             if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
-                prunableToolTokens += msgToolTokens
+                prunableToolTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
             }
         }
 
