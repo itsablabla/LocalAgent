@@ -58,14 +58,25 @@ class ConversationManager: ObservableObject {
     private var frozenCalendarContext: String?
     private var frozenEmailContext: String?
     private var frozenContextDay: Date?
+    private var isRestoringContextUsageSnapshot = false
 
     /// Actual prompt_tokens from the most recent API response. Used as the
     /// real HIGH watermark trigger for pruning instead of rough estimates.
     /// Also exposed (read-only) to the UI for the context gauge.
-    @Published private(set) var lastPromptTokens: Int?
+    @Published private(set) var lastPromptTokens: Int? {
+        didSet { saveContextUsageSnapshot() }
+    }
     /// Completion tokens from the most recent turn's final API response.
     /// Used to compute per-message measured tokens via delta arithmetic.
-    private var lastCompletionTokens: Int?
+    private var lastCompletionTokens: Int? {
+        didSet { saveContextUsageSnapshot() }
+    }
+
+    private struct ContextUsageSnapshot: Codable {
+        let lastPromptTokens: Int?
+        let lastCompletionTokens: Int?
+        let updatedAt: Date
+    }
 
     private struct ToolAwareResponse {
         let finalText: String
@@ -175,6 +186,10 @@ class ConversationManager: ObservableObject {
     private var conversationFileURL: URL {
         appFolder.appendingPathComponent("conversation.json")
     }
+
+    private var contextUsageFileURL: URL {
+        appFolder.appendingPathComponent("context_usage.json")
+    }
     
     private var imagesDirectory: URL {
         let dir = appFolder.appendingPathComponent("images", isDirectory: true)
@@ -197,6 +212,7 @@ class ConversationManager: ObservableObject {
     init() {
         isPrivacyModeEnabled = UserDefaults.standard.bool(forKey: privacyModeDefaultsKey)
         loadConversation()
+        loadContextUsageSnapshot()
 
         // Wire up archive status notifications to Telegram
         let telegramSvc = telegramService
@@ -1554,6 +1570,7 @@ class ConversationManager: ObservableObject {
             if messages.count >= archivedCount {
                 messages.removeFirst(archivedCount)
                 lastPromptTokens = nil
+                lastCompletionTokens = nil
                 saveConversation()
                 cleanupOrphanedToolAttachmentSnapshots()
                 print("[ConversationManager] Removed \(archivedCount) archived messages from active conversation")
@@ -4332,9 +4349,50 @@ class ConversationManager: ObservableObject {
             print("Failed to save conversation: \(error)")
         }
     }
+
+    private func loadContextUsageSnapshot(clearWhenMissing: Bool = false) {
+        guard FileManager.default.fileExists(atPath: contextUsageFileURL.path) else {
+            guard clearWhenMissing else { return }
+            isRestoringContextUsageSnapshot = true
+            lastPromptTokens = nil
+            lastCompletionTokens = nil
+            isRestoringContextUsageSnapshot = false
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: contextUsageFileURL)
+            let snapshot = try JSONDecoder().decode(ContextUsageSnapshot.self, from: data)
+            isRestoringContextUsageSnapshot = true
+            lastPromptTokens = snapshot.lastPromptTokens
+            lastCompletionTokens = snapshot.lastCompletionTokens
+            isRestoringContextUsageSnapshot = false
+        } catch {
+            isRestoringContextUsageSnapshot = false
+            print("Failed to load context usage snapshot: \(error)")
+        }
+    }
+
+    private func saveContextUsageSnapshot() {
+        guard !isRestoringContextUsageSnapshot else { return }
+
+        do {
+            let snapshot = ContextUsageSnapshot(
+                lastPromptTokens: lastPromptTokens,
+                lastCompletionTokens: lastCompletionTokens,
+                updatedAt: Date()
+            )
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: contextUsageFileURL)
+        } catch {
+            print("Failed to save context usage snapshot: \(error)")
+        }
+    }
     
     func clearConversation() {
         messages = []
+        lastPromptTokens = nil
+        lastCompletionTokens = nil
         saveConversation()
         
         // Also clear images
@@ -4418,6 +4476,7 @@ class ConversationManager: ObservableObject {
     /// This refreshes the conversation and archive service to pick up restored data
     func reloadAfterMindRestore() async {
         loadConversation()
+        loadContextUsageSnapshot(clearWhenMissing: true)
         await archiveService.reloadFromDisk()
         print("[ConversationManager] Reloaded data after Mind restore")
     }

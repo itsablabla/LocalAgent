@@ -39,6 +39,11 @@ actor MindExportService {
         if fm.fileExists(atPath: conversationSource.path) {
             try fm.copyItem(at: conversationSource, to: tempDir.appendingPathComponent("conversation.json"))
         }
+
+        let contextUsageSource = appFolder.appendingPathComponent("context_usage.json")
+        if fm.fileExists(atPath: contextUsageSource.path) {
+            try fm.copyItem(at: contextUsageSource, to: tempDir.appendingPathComponent("context_usage.json"))
+        }
         
         // 2. Copy archive folder (chunks)
         let archiveSource = appFolder.appendingPathComponent("archive", isDirectory: true)
@@ -122,6 +127,13 @@ actor MindExportService {
         if fm.fileExists(atPath: conversationSource.path) {
             try? fm.removeItem(at: conversationDest)
             try fm.copyItem(at: conversationSource, to: conversationDest)
+        }
+
+        let contextUsageSource = tempDir.appendingPathComponent("context_usage.json")
+        let contextUsageDest = appFolder.appendingPathComponent("context_usage.json")
+        try? fm.removeItem(at: contextUsageDest)
+        if fm.fileExists(atPath: contextUsageSource.path) {
+            try fm.copyItem(at: contextUsageSource, to: contextUsageDest)
         }
         
         // 2. Restore archive folder
