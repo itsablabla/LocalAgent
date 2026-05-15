@@ -569,7 +569,7 @@ actor ConversationArchiveService {
         Which chunks might contain information relevant to the query?
         """
         
-        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, maxTokens: 2000)
+        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt)
         
         guard let jsonData = extractFirstJSONObjectData(from: response),
               let result = try? JSONDecoder().decode(ChunkIdentificationResult.self, from: jsonData) else {
@@ -964,7 +964,7 @@ actor ConversationArchiveService {
         \(archiveContinuationBlock(context.currentConversationContext, label: "IMMEDIATE CONTINUATION AFTER CONVERSATION SEGMENT"))
         """
         
-        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, maxTokens: nil, sharedContextPrompt: sharedContextPrompt)
+        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, sharedContextPrompt: sharedContextPrompt)
         let clippedResponse = String(response.prefix(summaryMaxCharacters))
         return try validateSummaryText(clippedResponse)
     }
@@ -1017,7 +1017,7 @@ actor ConversationArchiveService {
         \(archiveContinuationBlock(context.currentConversationContext, label: "CONTEXT AFTER SOURCE SUMMARIES"))
         """
 
-        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, maxTokens: 1400, sharedContextPrompt: sharedContextPrompt)
+        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, sharedContextPrompt: sharedContextPrompt)
         let clippedResponse = String(response.prefix(summaryMaxCharacters))
         return try validateSummaryText(clippedResponse)
     }
@@ -1096,7 +1096,7 @@ actor ConversationArchiveService {
         while !completed {
             do {
                 try Task.checkCancellation()
-                let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, maxTokens: 500, sharedContextPrompt: sharedContextPrompt)
+                let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, sharedContextPrompt: sharedContextPrompt)
                 let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 if trimmed == "NO_CHANGES" || trimmed.isEmpty {
@@ -1175,7 +1175,7 @@ actor ConversationArchiveService {
         while !completed {
             do {
                 try Task.checkCancellation()
-                let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: "Restructure the user context above.", maxTokens: nil)
+                let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: "Restructure the user context above.")
                 let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard !trimmed.isEmpty else {
@@ -1337,7 +1337,7 @@ actor ConversationArchiveService {
         \(text.prefix(100000))
         """
         
-        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt, maxTokens: 4000)
+        let response = try await callLLM(systemPrompt: systemPrompt, userPrompt: userPrompt)
         
         if let jsonData = extractFirstJSONObjectData(from: response) {
             struct ExcerptResult: Codable { let excerpts: [String] }
@@ -1351,7 +1351,7 @@ actor ConversationArchiveService {
     
     // MARK: - Archive LLM API
     
-    private func callLLM(systemPrompt: String, userPrompt: String, maxTokens: Int?, sharedContextPrompt: String? = nil) async throws -> String {
+    private func callLLM(systemPrompt: String, userPrompt: String, maxTokens: Int? = nil, sharedContextPrompt: String? = nil) async throws -> String {
         let usingLMStudio = isLMStudio
 
         if usingLMStudio && model.isEmpty {
