@@ -4478,6 +4478,12 @@ class ConversationManager: ObservableObject {
         loadConversation()
         loadContextUsageSnapshot(clearWhenMissing: true)
         await archiveService.reloadFromDisk()
+        await ReminderService.shared.reloadFromDisk()
+        await CalendarService.shared.reloadFromDisk()
+        await FilesLedger.shared.reloadFromDisk()
+        await TodoStore.shared.reloadFromDisk()
+        await FileDescriptionService.shared.reloadFromStorage()
+        await SubagentSessionRegistry.shared.reloadFromDisk()
         print("[ConversationManager] Reloaded data after Mind restore")
     }
     

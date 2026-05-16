@@ -9,7 +9,7 @@ actor MindExportService {
     // MARK: - Configuration
     
     /// Version for forward compatibility
-    private let exportVersion = "1.0"
+    private let exportVersion = "1.1"
     
     /// File extension for mind exports
     static let fileExtension = "mind"
@@ -18,6 +18,15 @@ actor MindExportService {
     private let appFolder: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let folder = appSupport.appendingPathComponent("LocalAgent", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
+
+    /// Some newer LocalAgent state intentionally lives in ~/LocalAgent so it is
+    /// easy for users to inspect and share outside the app sandbox.
+    private let homeFolder: URL = {
+        let folder = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("LocalAgent", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }()
@@ -34,60 +43,44 @@ actor MindExportService {
         try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tempDir) }
         
-        // 1. Copy conversation.json
-        let conversationSource = appFolder.appendingPathComponent("conversation.json")
-        if fm.fileExists(atPath: conversationSource.path) {
-            try fm.copyItem(at: conversationSource, to: tempDir.appendingPathComponent("conversation.json"))
+        // 1. Copy app-support files.
+        for fileName in [
+            "conversation.json",
+            "context_usage.json",
+            "contacts.json",
+            "reminders.json",
+            "calendar.json",
+            "files_ledger.json",
+            "documents_last_opened.json",
+            "todos.json"
+        ] {
+            try copyItemIfExists(
+                from: appFolder.appendingPathComponent(fileName),
+                to: tempDir.appendingPathComponent(fileName)
+            )
         }
 
-        let contextUsageSource = appFolder.appendingPathComponent("context_usage.json")
-        if fm.fileExists(atPath: contextUsageSource.path) {
-            try fm.copyItem(at: contextUsageSource, to: tempDir.appendingPathComponent("context_usage.json"))
-        }
-        
-        // 2. Copy archive folder (chunks)
-        let archiveSource = appFolder.appendingPathComponent("archive", isDirectory: true)
-        if fm.fileExists(atPath: archiveSource.path) {
-            try fm.copyItem(at: archiveSource, to: tempDir.appendingPathComponent("archive", isDirectory: true))
-        }
-        
-        // 3. Copy images folder
-        let imagesSource = appFolder.appendingPathComponent("images", isDirectory: true)
-        if fm.fileExists(atPath: imagesSource.path) {
-            try fm.copyItem(at: imagesSource, to: tempDir.appendingPathComponent("images", isDirectory: true))
-        }
-        
-        // 4. Copy documents folder
-        let documentsSource = appFolder.appendingPathComponent("documents", isDirectory: true)
-        if fm.fileExists(atPath: documentsSource.path) {
-            try fm.copyItem(at: documentsSource, to: tempDir.appendingPathComponent("documents", isDirectory: true))
+        // 2. Copy app-support folders.
+        for folderName in [
+            "archive",
+            "images",
+            "documents",
+            "tool_attachments",
+            "projects"
+        ] {
+            try copyItemIfExists(
+                from: appFolder.appendingPathComponent(folderName, isDirectory: true),
+                to: tempDir.appendingPathComponent(folderName, isDirectory: true)
+            )
         }
 
-        // 5. Copy snapshotted tool attachments used for stable historical replay
-        let toolAttachmentsSource = appFolder.appendingPathComponent("tool_attachments", isDirectory: true)
-        if fm.fileExists(atPath: toolAttachmentsSource.path) {
-            try fm.copyItem(at: toolAttachmentsSource, to: tempDir.appendingPathComponent("tool_attachments", isDirectory: true))
-        }
-        
-        // 6. Copy contacts.json
-        let contactsSource = appFolder.appendingPathComponent("contacts.json")
-        if fm.fileExists(atPath: contactsSource.path) {
-            try fm.copyItem(at: contactsSource, to: tempDir.appendingPathComponent("contacts.json"))
-        }
-        
-        // 7. Copy reminders.json
-        let remindersSource = appFolder.appendingPathComponent("reminders.json")
-        if fm.fileExists(atPath: remindersSource.path) {
-            try fm.copyItem(at: remindersSource, to: tempDir.appendingPathComponent("reminders.json"))
-        }
-        
-        // 8. Copy calendar.json
-        let calendarSource = appFolder.appendingPathComponent("calendar.json")
-        if fm.fileExists(atPath: calendarSource.path) {
-            try fm.copyItem(at: calendarSource, to: tempDir.appendingPathComponent("calendar.json"))
-        }
-        
-        // 9. Create mind_config.json with Keychain and UserDefaults data
+        // 3. Copy home-backed memory stores.
+        try copyItemIfExists(
+            from: homeFolder.appendingPathComponent("subagent_sessions", isDirectory: true),
+            to: tempDir.appendingPathComponent("subagent_sessions", isDirectory: true)
+        )
+
+        // 4. Create mind_config.json with Keychain and UserDefaults data.
         let config = buildMindConfig()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -95,7 +88,7 @@ actor MindExportService {
         let configData = try encoder.encode(config)
         try configData.write(to: tempDir.appendingPathComponent("mind_config.json"))
         
-        // 10. Create ZIP archive using native macOS zip command
+        // 5. Create ZIP archive using native macOS zip command.
         // Remove existing file if present
         if fm.fileExists(atPath: destination.path) {
             try fm.removeItem(at: destination)
@@ -121,78 +114,36 @@ actor MindExportService {
         // Extract ZIP using native macOS unzip command
         try await extractZipArchive(from: source, to: tempDir)
         
-        // 1. Restore conversation.json
-        let conversationSource = tempDir.appendingPathComponent("conversation.json")
-        let conversationDest = appFolder.appendingPathComponent("conversation.json")
-        if fm.fileExists(atPath: conversationSource.path) {
-            try? fm.removeItem(at: conversationDest)
-            try fm.copyItem(at: conversationSource, to: conversationDest)
+        // 1. Restore app-support files. Missing files in older backups clear
+        // the current counterpart so import behaves like a real replacement.
+        for fileName in [
+            "conversation.json",
+            "context_usage.json",
+            "contacts.json",
+            "reminders.json",
+            "calendar.json",
+            "files_ledger.json",
+            "documents_last_opened.json",
+            "todos.json"
+        ] {
+            try restoreFile(named: fileName, from: tempDir, to: appFolder)
         }
 
-        let contextUsageSource = tempDir.appendingPathComponent("context_usage.json")
-        let contextUsageDest = appFolder.appendingPathComponent("context_usage.json")
-        try? fm.removeItem(at: contextUsageDest)
-        if fm.fileExists(atPath: contextUsageSource.path) {
-            try fm.copyItem(at: contextUsageSource, to: contextUsageDest)
-        }
-        
-        // 2. Restore archive folder
-        let archiveSource = tempDir.appendingPathComponent("archive", isDirectory: true)
-        let archiveDest = appFolder.appendingPathComponent("archive", isDirectory: true)
-        if fm.fileExists(atPath: archiveSource.path) {
-            try? fm.removeItem(at: archiveDest)
-            try fm.copyItem(at: archiveSource, to: archiveDest)
-        }
-        
-        // 3. Restore images folder
-        let imagesSource = tempDir.appendingPathComponent("images", isDirectory: true)
-        let imagesDest = appFolder.appendingPathComponent("images", isDirectory: true)
-        if fm.fileExists(atPath: imagesSource.path) {
-            try? fm.removeItem(at: imagesDest)
-            try fm.copyItem(at: imagesSource, to: imagesDest)
-        }
-        
-        // 4. Restore documents folder
-        let documentsSource = tempDir.appendingPathComponent("documents", isDirectory: true)
-        let documentsDest = appFolder.appendingPathComponent("documents", isDirectory: true)
-        if fm.fileExists(atPath: documentsSource.path) {
-            try? fm.removeItem(at: documentsDest)
-            try fm.copyItem(at: documentsSource, to: documentsDest)
+        // 2. Restore app-support folders.
+        for folderName in [
+            "archive",
+            "images",
+            "documents",
+            "tool_attachments",
+            "projects"
+        ] {
+            try restoreDirectory(named: folderName, from: tempDir, to: appFolder)
         }
 
-        // 5. Restore snapshotted tool attachments
-        let toolAttachmentsSource = tempDir.appendingPathComponent("tool_attachments", isDirectory: true)
-        let toolAttachmentsDest = appFolder.appendingPathComponent("tool_attachments", isDirectory: true)
-        if fm.fileExists(atPath: toolAttachmentsSource.path) {
-            try? fm.removeItem(at: toolAttachmentsDest)
-            try fm.copyItem(at: toolAttachmentsSource, to: toolAttachmentsDest)
-        }
-        
-        // 6. Restore contacts.json
-        let contactsSource = tempDir.appendingPathComponent("contacts.json")
-        let contactsDest = appFolder.appendingPathComponent("contacts.json")
-        if fm.fileExists(atPath: contactsSource.path) {
-            try? fm.removeItem(at: contactsDest)
-            try fm.copyItem(at: contactsSource, to: contactsDest)
-        }
-        
-        // 7. Restore reminders.json
-        let remindersSource = tempDir.appendingPathComponent("reminders.json")
-        let remindersDest = appFolder.appendingPathComponent("reminders.json")
-        if fm.fileExists(atPath: remindersSource.path) {
-            try? fm.removeItem(at: remindersDest)
-            try fm.copyItem(at: remindersSource, to: remindersDest)
-        }
-        
-        // 8. Restore calendar.json
-        let calendarSource = tempDir.appendingPathComponent("calendar.json")
-        let calendarDest = appFolder.appendingPathComponent("calendar.json")
-        if fm.fileExists(atPath: calendarSource.path) {
-            try? fm.removeItem(at: calendarDest)
-            try fm.copyItem(at: calendarSource, to: calendarDest)
-        }
-        
-        // 9. Restore mind_config.json settings
+        // 3. Restore home-backed memory stores.
+        try restoreDirectory(named: "subagent_sessions", from: tempDir, to: homeFolder)
+
+        // 4. Restore mind_config.json settings.
         // Fallback to any *_config.json for backward/forward compatibility.
         let preferredConfigSource = tempDir.appendingPathComponent("mind_config.json")
         let configSource: URL?
@@ -215,6 +166,34 @@ actor MindExportService {
         }
         
         print("[MindExportService] Imported mind from: \(source.path)")
+    }
+
+    // MARK: - File Copy Helpers
+
+    private func copyItemIfExists(from source: URL, to destination: URL) throws {
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    private func restoreFile(named fileName: String, from tempDir: URL, to destinationDir: URL) throws {
+        let source = tempDir.appendingPathComponent(fileName)
+        let destination = destinationDir.appendingPathComponent(fileName)
+        try? FileManager.default.removeItem(at: destination)
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
+    private func restoreDirectory(named folderName: String, from tempDir: URL, to destinationDir: URL) throws {
+        let source = tempDir.appendingPathComponent(folderName, isDirectory: true)
+        let destination = destinationDir.appendingPathComponent(folderName, isDirectory: true)
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: source.path) {
+            try FileManager.default.copyItem(at: source, to: destination)
+        } else {
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        }
     }
     
     // MARK: - ZIP Operations (using native macOS commands)

@@ -114,6 +114,13 @@ actor FilesLedger {
         try? FileManager.default.removeItem(at: Self.ledgerURL)
     }
 
+    /// Reload ledger entries after a Mind restore replaces the backing JSON file.
+    func reloadFromDisk() {
+        entries.removeAll()
+        loaded = false
+        loadIfNeeded()
+    }
+
     // MARK: - Persistence
 
     private func loadIfNeeded() {

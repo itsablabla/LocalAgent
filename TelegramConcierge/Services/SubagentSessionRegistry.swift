@@ -237,6 +237,12 @@ actor SubagentSessionRegistry {
         sessions.removeAll()
     }
 
+    /// Reload sessions after a Mind restore replaces the backing directory.
+    func reloadFromDisk() {
+        sessions.removeAll()
+        loadAllFromDisk()
+    }
+
     // MARK: - LRU retention
 
     /// Maximum number of sessions retained. When exceeded, least-recently-used

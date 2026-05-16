@@ -64,4 +64,11 @@ actor FileDescriptionService {
         UserDefaults.standard.removeObject(forKey: storageKey)
         print("[FileDescriptionService] Cleared all file descriptions")
     }
+
+    /// Reload descriptions after a Mind restore replaces UserDefaults data.
+    func reloadFromStorage() {
+        cache.removeAll()
+        loaded = false
+        loadIfNeeded()
+    }
 }

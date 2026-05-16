@@ -97,6 +97,12 @@ actor ReminderService {
         saveReminders()
         print("[ReminderService] Cleared all reminders")
     }
+
+    /// Reload reminders after a Mind restore replaces the backing JSON file.
+    func reloadFromDisk() {
+        reminders.removeAll()
+        loadReminders()
+    }
     
     // MARK: - Persistence
     

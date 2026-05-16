@@ -61,6 +61,13 @@ actor TodoStore {
         try? FileManager.default.removeItem(at: storeURL)
     }
 
+    /// Reload todos after a Mind restore replaces the backing JSON file.
+    func reloadFromDisk() {
+        todos.removeAll()
+        loaded = false
+        loadIfNeeded()
+    }
+
     // MARK: - Private
 
     private func loadIfNeeded() {

@@ -229,7 +229,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("This will replace ALL current data (conversation, chunks, files, reminders, calendar, contacts, persona) with the backup. API keys are not affected. This cannot be undone.")
+            Text("This will replace ALL current data (conversation, chunks, summaries, files, projects, reminders, calendar, contacts, todos, subagent session histories, and persona) with the backup. API keys are not affected. This cannot be undone.")
         }
         .alert("Delete All Memory?", isPresented: $showingDeleteMemoryConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -975,7 +975,7 @@ struct SettingsView: View {
                 Text(
                     conversationManager.isPrivacyModeEnabled
                         ? "Mind export is disabled while privacy mode is active. Send `/show` in Telegram to re-enable it."
-                        : "Download Mind exports your conversation history, memory chunks, files, contacts, reminders, calendar, and persona settings. API keys are NOT included for security."
+                        : "Download Mind exports your conversation history, memory chunks, files, projects, contacts, reminders, calendar, todos, subagent session histories, and persona settings. API keys are NOT included for security."
                 )
                     .font(.caption)
                     .foregroundColor(.secondary)

@@ -346,6 +346,13 @@ actor CalendarService {
         saveEvents()
         print("[CalendarService] Imported \(events.count) events")
     }
+
+    /// Reload events after a Mind restore replaces the backing JSON file.
+    func reloadFromDisk() {
+        events.removeAll()
+        invalidateCache()
+        loadEvents()
+    }
     
     /// Get count of all events (past + future)
     func totalEventCount() -> Int {
