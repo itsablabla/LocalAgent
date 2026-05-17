@@ -2,9 +2,10 @@ import Foundation
 
 // MARK: - Subagent Type Registry
 
-/// Model-selection hint for a subagent run. `.cheapFast` routes to a fast
-/// Gemini model with explicit "high" reasoning for prompt-cache isolation from
-/// the parent (separate model → separate cache lane).
+/// Model-selection hint for a subagent run. `.inherit` uses the parent's
+/// configured model. `.cheapFast` routes to a fast Gemini model with explicit
+/// "high" reasoning (useful when you want prompt-cache isolation from the
+/// parent via a separate model lane).
 enum SubagentModelChoice {
     case inherit
     case cheapFast
@@ -66,7 +67,7 @@ enum SubagentTypes {
             "You are a focused general-purpose subagent. Return a concrete final message with findings — file paths, line numbers, verbatim quotes when relevant. Do not ask clarifying questions.",
         allowedToolNames: nil,
         defaultMaxTurns: 80,
-        preferredModel: .cheapFast
+        preferredModel: .inherit
     )
 
     static let explore = SubagentType(
@@ -80,7 +81,7 @@ enum SubagentTypes {
             "web_fetch", "web_search", "bash"
         ],
         defaultMaxTurns: 80,
-        preferredModel: .cheapFast
+        preferredModel: .inherit
     )
 
     static let plan = SubagentType(
@@ -94,7 +95,7 @@ enum SubagentTypes {
             "web_fetch", "web_search", "bash"
         ],
         defaultMaxTurns: 80,
-        preferredModel: .cheapFast
+        preferredModel: .inherit
     )
 
     /// Dynamic subagent registered when a Playwright MCP is installed.
@@ -107,7 +108,7 @@ enum SubagentTypes {
             "You are a browser automation specialist. Use the mcp__playwright__* tools to navigate, snapshot, click, type, and evaluate pages. Prefer `browser_snapshot` (cheap, structured accessibility tree) over `browser_take_screenshot` unless a visual is specifically requested. Return a concise report with what you found, what you clicked, and any extracted data. If navigating to a sensitive site (bank, admin console), stop and report back rather than acting.",
         allowedToolNames: ["read_file", "grep", "bash", "web_fetch"],
         defaultMaxTurns: 80,
-        preferredModel: .cheapFast,
+        preferredModel: .inherit,
         mcpToolPatterns: ["mcp__playwright__*"]
     )
 
@@ -121,7 +122,7 @@ enum SubagentTypes {
             "You are a database analysis specialist. Use the mcp__postgres__* / mcp__sqlite__* / mcp__mysql__* tools (whichever are present) to list schemas, inspect tables, and run read queries. For destructive writes (INSERT/UPDATE/DELETE/DROP), stop and confirm intent before executing. Return results as a concise summary with row counts and key values — do not dump large tables verbatim.",
         allowedToolNames: ["read_file", "grep", "bash"],
         defaultMaxTurns: 80,
-        preferredModel: .cheapFast,
+        preferredModel: .inherit,
         mcpToolPatterns: ["mcp__postgres__*", "mcp__sqlite__*", "mcp__mysql__*"]
     )
 
