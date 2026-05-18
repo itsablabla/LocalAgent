@@ -37,18 +37,25 @@ actor OpenRouterService {
         return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? defaultModel
     }
 
-    /// Returns the user-configured provider order, or nil if not set
+    /// Returns the user-configured provider order, or nil if not set.
+    /// Falls back to ["google-ai-studio"] for Gemini models when no provider is configured,
+    /// because OpenRouter may route to unreliable providers otherwise.
     private var providers: [String]? {
         guard !isLMStudio else { return nil }
-        guard let providersString = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey),
-              !providersString.isEmpty else {
-            return nil
+        if let providersString = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey),
+           !providersString.isEmpty {
+            // User explicitly configured providers — use those
+            return providersString
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
         }
-        // Parse comma-separated list, trim whitespace
-        return providersString
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        // No provider configured — default to google-ai-studio for Gemini models
+        let currentModel = model.lowercased()
+        if currentModel.contains("gemini") {
+            return ["google-ai-studio"]
+        }
+        return nil
     }
 
     /// Returns the user-configured reasoning effort, defaulting to "high" for Gemini models
