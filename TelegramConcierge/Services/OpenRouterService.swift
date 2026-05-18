@@ -50,9 +50,9 @@ actor OpenRouterService {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
         }
-        // No provider configured — default to google-ai-studio for Gemini models
-        let currentModel = model.lowercased()
-        if currentModel.contains("gemini") {
+        // No provider configured — default to google-ai-studio for the default model,
+        // which only works reliably through Google AI Studio on OpenRouter
+        if model == defaultModel {
             return ["google-ai-studio"]
         }
         return nil
