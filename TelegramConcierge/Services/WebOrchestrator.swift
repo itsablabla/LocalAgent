@@ -6,7 +6,7 @@ enum ORModel {
     static let webExcerpts       = "openai/gpt-oss-20b"
     static let webFinalAnswer    = "openai/gpt-oss-120b"
     static let deepExcerpt       = "openai/gpt-oss-120b"
-    static let defaultMainModel  = "google/gemini-3-flash-preview"
+    static let defaultMainModel  = "~google/gemini-flash-latest"
 }
 
 enum Endpoints {

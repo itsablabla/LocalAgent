@@ -3,7 +3,7 @@ import PDFKit
 
 actor OpenRouterService {
     private let openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
-    private let defaultModel = "google/gemini-3-flash-preview"
+    private let defaultModel = "~google/gemini-flash-latest"
     private var apiKey: String = ""
 
     /// Whether the user has selected LMStudio as their LLM provider

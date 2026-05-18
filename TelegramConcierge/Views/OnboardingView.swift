@@ -250,7 +250,7 @@ struct OnboardingView: View {
                     if llmProvider == "openrouter" {
                         TextField("Model (optional)", text: $openRouterModel)
                             .textFieldStyle(.roundedBorder)
-                        Text("Leave empty for Gemini Flash. Or use google/gemini-3-flash-preview, anthropic/claude-sonnet-4, etc.")
+                        Text("Leave empty for Gemini Flash. Or use ~google/gemini-flash-latest, anthropic/claude-sonnet-4, etc.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

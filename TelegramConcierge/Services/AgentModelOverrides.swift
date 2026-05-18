@@ -18,7 +18,7 @@ import Foundation
 /// {
 ///   "Explore":         { "model": "anthropic/claude-sonnet-4.5", "reasoning_effort": "medium" },
 ///   "Plan":            { "model": "inherit",                     "reasoning_effort": "high" },
-///   "general-purpose": { "model": "google/gemini-3-flash-preview" }
+///   "general-purpose": { "model": "~google/gemini-flash-latest" }
 /// }
 /// ```
 ///

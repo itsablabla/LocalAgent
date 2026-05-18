@@ -56,7 +56,7 @@ actor ConversationArchiveService {
             return (KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? "google/gemini-3-flash-preview"
+        return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? "~google/gemini-flash-latest"
     }
     private var apiKey: String = ""
     

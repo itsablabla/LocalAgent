@@ -47,11 +47,11 @@ struct SubagentType {
 }
 
 /// Model/provider/reasoning targets for `.cheapFast` subagent runs.
-/// Gemini-3-Flash gives us cache isolation from the parent while matching the
+/// Gemini Flash Latest gives us cache isolation from the parent while matching the
 /// app's default model family, and explicit "high" reasoning mirrors the
 /// repo-wide default configured in Settings.
 enum SubagentModelProfile {
-    static let cheapFastModel = "google/gemini-3-flash-preview"
+    static let cheapFastModel = "~google/gemini-flash-latest"
     /// Provider preference left unset — OpenRouter routes Gemini Flash to
     /// whichever of its configured providers is available (Google AI Studio /
     /// Vertex). Keep this nil unless we need deterministic routing.

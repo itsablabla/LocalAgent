@@ -449,7 +449,7 @@ struct SettingsView: View {
                     TextField("Model", text: $openRouterModel)
                         .textFieldStyle(.roundedBorder)
 
-                    Text("Default: google/gemini-3-flash-preview")
+                    Text("Default: ~google/gemini-flash-latest")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -2368,7 +2368,7 @@ struct SettingsView: View {
                 return lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
             case .openRouter:
                 let configured = openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
-                return configured.isEmpty ? "google/gemini-3-flash-preview" : configured
+                return configured.isEmpty ? "~google/gemini-flash-latest" : configured
             }
         }()
 
