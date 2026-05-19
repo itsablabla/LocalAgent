@@ -221,6 +221,13 @@ struct SettingsView: View {
                 calendarEventCount = await CalendarService.shared.totalEventCount()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .localAgentLLMProviderDidChange)) { notification in
+            if let provider = notification.userInfo?["provider"] as? String {
+                llmProvider = provider
+            } else {
+                llmProvider = KeychainHelper.load(key: KeychainHelper.llmProviderKey) ?? "lmstudio"
+            }
+        }
         .alert("Restore Mind Backup?", isPresented: $showingRestoreConfirmation) {
             Button("Cancel", role: .cancel) { pendingImportURL = nil }
             Button("Restore", role: .destructive) {

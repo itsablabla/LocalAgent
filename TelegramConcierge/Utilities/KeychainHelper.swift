@@ -1,6 +1,10 @@
 import Foundation
 import Security
 
+extension Notification.Name {
+    static let localAgentLLMProviderDidChange = Notification.Name("localagent.llmProviderDidChange")
+}
+
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter = "openrouter"
     case lmStudio = "lmstudio" // Kept as "lmstudio" for backward compatibility; represents any local provider

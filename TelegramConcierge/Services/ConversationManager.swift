@@ -1032,6 +1032,15 @@ class ConversationManager: ObservableObject {
         case "/show":
             await setPrivacyMode(enabled: false)
             return true
+        case "/llm":
+            await toggleLLMProvider()
+            return true
+        case "/llm_openrouter":
+            await switchLLMProvider(to: .openRouter)
+            return true
+        case "/llm_local":
+            await switchLLMProvider(to: .lmStudio)
+            return true
         case "/transcribe_local":
             await switchVoiceTranscriptionProvider(to: .local)
             return true
@@ -1046,6 +1055,65 @@ class ConversationManager: ObservableObject {
             return true
         default:
             return false
+        }
+    }
+
+    private func toggleLLMProvider() async {
+        let current = LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey))
+        let next: LLMProvider = current == .openRouter ? .lmStudio : .openRouter
+        await switchLLMProvider(to: next)
+    }
+
+    private func switchLLMProvider(to provider: LLMProvider) async {
+        guard let chatId = pairedChatId else { return }
+
+        if provider == .openRouter {
+            let apiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !apiKey.isEmpty else {
+                try? await telegramService.sendMessage(
+                    chatId: chatId,
+                    text: "OpenRouter is not configured yet. Add an OpenRouter API key in Settings first."
+                )
+                return
+            }
+            await openRouterService.configure(apiKey: apiKey)
+            await archiveService.configure(apiKey: apiKey)
+        }
+
+        do {
+            try KeychainHelper.save(key: KeychainHelper.llmProviderKey, value: provider.rawValue)
+            NotificationCenter.default.post(
+                name: .localAgentLLMProviderDidChange,
+                object: nil,
+                userInfo: ["provider": provider.rawValue]
+            )
+            try await telegramService.sendMessage(chatId: chatId, text: llmProviderSwitchMessage(for: provider))
+        } catch {
+            try? await telegramService.sendMessage(
+                chatId: chatId,
+                text: "Could not switch LLM provider: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func llmProviderSwitchMessage(for provider: LLMProvider) -> String {
+        switch provider {
+        case .openRouter:
+            let configured = KeychainHelper.load(key: KeychainHelper.openRouterModelKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let model = configured.isEmpty ? "~google/gemini-flash-latest" : configured
+            return "Switched to OpenRouter using \(model)."
+        case .lmStudio:
+            let model = KeychainHelper.load(key: KeychainHelper.lmStudioModelKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let baseURL = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let resolvedBaseURL = baseURL.isEmpty ? KeychainHelper.defaultLMStudioBaseURL : baseURL
+            if model.isEmpty {
+                return "Switched to Local Inference at \(resolvedBaseURL). Local model name is not configured yet."
+            }
+            return "Switched to Local Inference using \(model) at \(resolvedBaseURL)."
         }
     }
 
