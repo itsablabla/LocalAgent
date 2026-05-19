@@ -38,9 +38,9 @@ actor OpenRouterService {
     }
 
     /// Returns the user-configured provider order, or nil if not set.
-    /// Falls back to ["google-ai-studio"] for Gemini models when no provider is configured,
-    /// because OpenRouter may route to unreliable providers otherwise.
-    private var providers: [String]? {
+    /// Falls back to ["google-ai-studio"] for the default Gemini model when no provider is configured,
+    /// because OpenRouter may route it to unreliable providers otherwise.
+    private func providers(for requestedModel: String) -> [String]? {
         guard !isLMStudio else { return nil }
         if let providersString = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey),
            !providersString.isEmpty {
@@ -52,7 +52,7 @@ actor OpenRouterService {
         }
         // No provider configured — default to google-ai-studio for the default model,
         // which only works reliably through Google AI Studio on OpenRouter
-        if model == defaultModel {
+        if requestedModel == defaultModel {
             return ["google-ai-studio"]
         }
         return nil
@@ -1315,11 +1315,19 @@ actor OpenRouterService {
         // Build request — skip OpenRouter-specific fields when using LMStudio
         let usingLMStudio = isLMStudio
 
+        let effectiveModel: String = {
+            if let override = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !override.isEmpty {
+                return override
+            }
+            return model
+        }()
+
         var providerPrefs: ProviderPreferences? = nil
         if !usingLMStudio {
             if let order = providerOverride, !order.isEmpty {
                 providerPrefs = ProviderPreferences(order: nil, only: order, allow_fallbacks: false, sort: nil)
-            } else if let providerOrder = providers, !providerOrder.isEmpty {
+            } else if let providerOrder = providers(for: effectiveModel), !providerOrder.isEmpty {
                 providerPrefs = ProviderPreferences(order: nil, only: providerOrder, allow_fallbacks: false, sort: nil)
             }
         }
@@ -1333,14 +1341,6 @@ actor OpenRouterService {
                 reasoningConfig = ReasoningConfig(effort: effort)
             }
         }
-
-        let effectiveModel: String = {
-            if let override = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !override.isEmpty {
-                return override
-            }
-            return model
-        }()
 
         let body = OpenRouterRequest(
             model: effectiveModel,
@@ -1805,7 +1805,11 @@ actor OpenRouterService {
             model: descriptionModel,
             messages: apiMessages,
             tools: nil,
-            provider: usingLMStudioForDescriptions ? nil : providers.map { ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil) },
+            provider: usingLMStudioForDescriptions
+                ? nil
+                : providers(for: descriptionModel).map {
+                    ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
+                },
             reasoning: usingLMStudioForDescriptions ? nil : reasoningEffort.map { ReasoningConfig(effort: $0) }
         )
 
