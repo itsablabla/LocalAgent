@@ -63,6 +63,10 @@ struct SettingsView: View {
     // Auto-save debounce
     @State private var autoSaveTask: Task<Void, Never>?
 
+    // Text-only model settings
+    @State private var textOnlyModelEnabled: Bool = false
+    @State private var visionPreprocessorModel: String = ""
+
     // Collapsible sections
     @State private var isSpendLimitsExpanded: Bool = false
     @State private var isDescriptionModelExpanded: Bool = false
@@ -521,6 +525,23 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
+                Divider()
+
+                Toggle("Text-only model", isOn: $textOnlyModelEnabled)
+
+                Text("Enable this if your model does not support images or documents natively. A separate vision model will preprocess all multimodal content into detailed text descriptions before sending to the main model.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if textOnlyModelEnabled {
+                    TextField("Vision Preprocessor Model", text: $visionPreprocessorModel)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("The multimodal model used to describe images and transcribe documents. Requires an OpenRouter API key. Default: \(KeychainHelper.defaultVisionPreprocessorModel)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
             } header: {
                 Label("LLM Provider", systemImage: "brain.head.profile")
             }
@@ -543,6 +564,8 @@ struct SettingsView: View {
         .onChange(of: openRouterToolSpendLimit) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterDailySpendLimit) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterMonthlySpendLimit) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: textOnlyModelEnabled) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: visionPreprocessorModel) { _ in autoSave { saveOpenRouterSection() } }
     }
 
     // MARK: - Services Tab
@@ -1563,6 +1586,8 @@ struct SettingsView: View {
             openRouterMonthlySpendLimit = ""
         }
         refreshOpenRouterSpendCounters()
+        textOnlyModelEnabled = KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true"
+        visionPreprocessorModel = KeychainHelper.load(key: KeychainHelper.visionPreprocessorModelKey) ?? ""
         serperApiKey = KeychainHelper.load(key: KeychainHelper.serperApiKeyKey) ?? ""
         jinaApiKey = KeychainHelper.load(key: KeychainHelper.jinaApiKeyKey) ?? ""
         
@@ -1931,8 +1956,16 @@ struct SettingsView: View {
             try? KeychainHelper.delete(key: KeychainHelper.openRouterToolSpendLimitMonthlyUSDKey)
         }
         refreshOpenRouterSpendCounters()
+        // Save text-only model settings
+        try? KeychainHelper.save(key: KeychainHelper.textOnlyModelEnabledKey, value: textOnlyModelEnabled ? "true" : "false")
+        let trimmedVisionModel = visionPreprocessorModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedVisionModel.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.visionPreprocessorModelKey, value: trimmedVisionModel)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.visionPreprocessorModelKey)
+        }
     }
-    
+
     private func saveWebSearchSection() {
         if !serperApiKey.isEmpty {
             try? KeychainHelper.save(key: KeychainHelper.serperApiKeyKey, value: serperApiKey)

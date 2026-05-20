@@ -174,6 +174,11 @@ extension KeychainHelper {
     static let lmStudioDescriptionModelKey = "lmstudio_description_model"
     static let lmStudioDescriptionBaseURLKey = "lmstudio_description_base_url"
 
+    // Text-Only Model Settings
+    static let textOnlyModelEnabledKey = "text_only_model_enabled"  // "true" or absent
+    static let visionPreprocessorModelKey = "vision_preprocessor_model"
+    static let defaultVisionPreprocessorModel = "~google/gemini-flash-latest"
+
     // Archive Settings
     static let archiveChunkSizeKey = "archive_chunk_size"
 
