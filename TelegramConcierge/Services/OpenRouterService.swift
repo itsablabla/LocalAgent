@@ -574,58 +574,20 @@ actor OpenRouterService {
             tokens = message.content.count / 4
         }
 
-        if isTextOnlyModel && message.hasUnprunedMedia {
-            tokens += estimatedTextOnlyProxyTokens(for: message)
-        } else {
-            // All attachments (primary + referenced): 50 tokens each for the text breadcrumb
-            let breadcrumbCount = message.imageFileNames.count
-                + message.documentFileNames.filter { !isVoiceMessage($0) }.count
-                + message.referencedImageFileNames.count
-                + message.referencedDocumentFileNames.filter { !isVoiceMessage($0) }.count
-            tokens += breadcrumbCount * 50
-        }
+        // All attachments (primary + referenced): 50 tokens each for the text breadcrumb.
+        // Media is archived as breadcrumbs — not full content or text-only OCR
+        // transcriptions — so the chunk-trigger weight must not count the transient OCR
+        // expansion (which would summarize history far too eagerly and over-count what
+        // actually ends up in a chunk). Mirrors how tool replay and thinking are excluded.
+        let breadcrumbCount = message.imageFileNames.count
+            + message.documentFileNames.filter { !isVoiceMessage($0) }.count
+            + message.referencedImageFileNames.count
+            + message.referencedDocumentFileNames.filter { !isVoiceMessage($0) }.count
+        tokens += breadcrumbCount * 50
 
         return max(tokens, 1)
     }
 
-    private func estimatedTextOnlyProxyTokens(for message: Message) -> Int {
-        var tokens = 0
-
-        for (index, fileName) in message.imageFileNames.enumerated() {
-            let size = index < message.imageFileSizes.count ? message.imageFileSizes[index] : 0
-            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
-        }
-        for fileName in message.referencedImageFileNames {
-            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: 0)
-        }
-        for (index, fileName) in message.documentFileNames.enumerated() where !isVoiceMessage(fileName) {
-            let size = index < message.documentFileSizes.count ? message.documentFileSizes[index] : 0
-            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
-        }
-        for (index, fileName) in message.referencedDocumentFileNames.enumerated() where !isVoiceMessage(fileName) {
-            let size = index < message.referencedDocumentFileSizes.count ? message.referencedDocumentFileSizes[index] : 0
-            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
-        }
-
-        return tokens
-    }
-
-    private func estimatedTextOnlyProxyTokens(filename: String, byteSize: Int) -> Int {
-        let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
-        if ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff", "tif"].contains(ext) {
-            return max(500, min(4_000, byteSize / 2_048 + 700))
-        }
-        if ext == "pdf" {
-            let pageGuess = max(1, byteSize / 100_000)
-            let byteBased = byteSize > 0 ? byteSize / 8 : 0
-            return min(80_000, max(pageGuess * 700, byteBased))
-        }
-        if ["txt", "md", "json", "csv", "xml", "html", "htm"].contains(ext) {
-            return max(20, min(80_000, byteSize / 4 + 20))
-        }
-        return 50
-    }
-    
     /// Process messages with dynamic context window (25k-50k)
     /// When total exceeds 50k, returns oldest 25k for archival and keeps recent 25k
     func processContextWindow(_ messages: [Message]) -> ContextWindowResult {
