@@ -58,6 +58,18 @@ actor OpenRouterService {
         return nil
     }
 
+    /// Provider routing for the vision preprocessor is independent from the main model.
+    /// The main model may be pinned to a text-only provider, which would otherwise break
+    /// preprocessing even when the configured vision model is valid.
+    private func providersForVisionPreprocessor(_ requestedModel: String) -> [String]? {
+        let normalized = requestedModel.lowercased()
+        if requestedModel == KeychainHelper.defaultVisionPreprocessorModel
+            || normalized.contains("google/gemini") {
+            return ["google-ai-studio"]
+        }
+        return nil
+    }
+
     /// Returns the user-configured reasoning effort, defaulting to "high" for Gemini models
     private var reasoningEffort: String? {
         guard !isLMStudio else { return nil }
@@ -562,14 +574,56 @@ actor OpenRouterService {
             tokens = message.content.count / 4
         }
 
-        // All attachments (primary + referenced): 50 tokens each for the text breadcrumb
-        let breadcrumbCount = message.imageFileNames.count
-            + message.documentFileNames.filter { !isVoiceMessage($0) }.count
-            + message.referencedImageFileNames.count
-            + message.referencedDocumentFileNames.filter { !isVoiceMessage($0) }.count
-        tokens += breadcrumbCount * 50
+        if isTextOnlyModel && message.hasUnprunedMedia {
+            tokens += estimatedTextOnlyProxyTokens(for: message)
+        } else {
+            // All attachments (primary + referenced): 50 tokens each for the text breadcrumb
+            let breadcrumbCount = message.imageFileNames.count
+                + message.documentFileNames.filter { !isVoiceMessage($0) }.count
+                + message.referencedImageFileNames.count
+                + message.referencedDocumentFileNames.filter { !isVoiceMessage($0) }.count
+            tokens += breadcrumbCount * 50
+        }
 
         return max(tokens, 1)
+    }
+
+    private func estimatedTextOnlyProxyTokens(for message: Message) -> Int {
+        var tokens = 0
+
+        for (index, fileName) in message.imageFileNames.enumerated() {
+            let size = index < message.imageFileSizes.count ? message.imageFileSizes[index] : 0
+            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
+        }
+        for fileName in message.referencedImageFileNames {
+            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: 0)
+        }
+        for (index, fileName) in message.documentFileNames.enumerated() where !isVoiceMessage(fileName) {
+            let size = index < message.documentFileSizes.count ? message.documentFileSizes[index] : 0
+            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
+        }
+        for (index, fileName) in message.referencedDocumentFileNames.enumerated() where !isVoiceMessage(fileName) {
+            let size = index < message.referencedDocumentFileSizes.count ? message.referencedDocumentFileSizes[index] : 0
+            tokens += estimatedTextOnlyProxyTokens(filename: fileName, byteSize: size)
+        }
+
+        return tokens
+    }
+
+    private func estimatedTextOnlyProxyTokens(filename: String, byteSize: Int) -> Int {
+        let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+        if ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff", "tif"].contains(ext) {
+            return max(500, min(4_000, byteSize / 2_048 + 700))
+        }
+        if ext == "pdf" {
+            let pageGuess = max(1, byteSize / 100_000)
+            let byteBased = byteSize > 0 ? byteSize / 8 : 0
+            return min(80_000, max(pageGuess * 700, byteBased))
+        }
+        if ["txt", "md", "json", "csv", "xml", "html", "htm"].contains(ext) {
+            return max(20, min(80_000, byteSize / 4 + 20))
+        }
+        return 50
     }
     
     /// Process messages with dynamic context window (25k-50k)
@@ -1327,7 +1381,7 @@ actor OpenRouterService {
 
         // Text-only model gate: replace all multimodal content with text descriptions
         if isTextOnlyModel {
-            await preprocessMultimodalContent(in: &apiMessages)
+            try await preprocessMultimodalContent(in: &apiMessages)
         }
 
         // Build request — skip OpenRouter-specific fields when using LMStudio
@@ -1694,26 +1748,33 @@ actor OpenRouterService {
 
     // MARK: - Text-Only Model Vision Preprocessing
 
+    private struct VisionMediaRef {
+        let messageIndex: Int
+        let partIndex: Int
+        let dataURL: String
+        let contentHash: String
+        let label: String
+    }
+
+    private struct VisionMediaItem {
+        let dataURL: String
+        let contentHash: String
+        let label: String
+    }
+
     /// Scans `apiMessages` for any `ContentPart.image` or `ContentPart.file` entries and replaces
     /// them with detailed text descriptions generated by a separate vision-capable model.
     /// This allows text-only models to "see" images and documents via rich text proxies.
     ///
     /// Descriptions are cached by content hash so repeated images across turns are not re-described.
     /// Only called when `isTextOnlyModel` is true.
-    private func preprocessMultimodalContent(in apiMessages: inout [OpenRouterAPIMessage]) async {
-        // Collect all image/file parts across all messages, tracking their location
-        struct MediaRef {
-            let messageIndex: Int
-            let partIndex: Int
-            let dataURL: String
-            let contentHash: String
-        }
-
-        var uncachedRefs: [MediaRef] = []
-        var cachedReplacements: [(messageIndex: Int, partIndex: Int, text: String)] = []
+    private func preprocessMultimodalContent(in apiMessages: inout [OpenRouterAPIMessage]) async throws {
+        var uncachedRefs: [VisionMediaRef] = []
+        var cachedReplacements: [(ref: VisionMediaRef, text: String)] = []
 
         for (msgIdx, message) in apiMessages.enumerated() {
             guard let content = message.content, case .parts(let parts) = content else { continue }
+            let labelsByPartIndex = inferredMediaLabelsByPartIndex(from: parts)
             for (partIdx, part) in parts.enumerated() {
                 let dataURL: String
                 switch part {
@@ -1726,27 +1787,42 @@ actor OpenRouterService {
                 }
 
                 let hash = VisionPreprocessorCache.contentHash(dataURL)
+                let label = labelsByPartIndex[partIdx] ?? fallbackMediaLabel(partIndex: partIdx, dataURL: dataURL)
+                let ref = VisionMediaRef(
+                    messageIndex: msgIdx,
+                    partIndex: partIdx,
+                    dataURL: dataURL,
+                    contentHash: hash,
+                    label: label
+                )
 
                 if let cached = await VisionPreprocessorCache.shared.get(hash: hash) {
-                    cachedReplacements.append((msgIdx, partIdx, cached))
+                    cachedReplacements.append((ref, cached))
                 } else {
-                    uncachedRefs.append(MediaRef(
-                        messageIndex: msgIdx,
-                        partIndex: partIdx,
-                        dataURL: dataURL,
-                        contentHash: hash
-                    ))
+                    uncachedRefs.append(ref)
                 }
             }
         }
 
         // Apply cached replacements immediately
         for replacement in cachedReplacements {
-            replacePartWithText(in: &apiMessages, messageIndex: replacement.messageIndex,
-                                partIndex: replacement.partIndex, text: replacement.text)
+            replacePartWithText(
+                in: &apiMessages,
+                messageIndex: replacement.ref.messageIndex,
+                partIndex: replacement.ref.partIndex,
+                text: wrapVisionProxyText(replacement.text, label: replacement.ref.label, dataURL: replacement.ref.dataURL)
+            )
         }
 
-        // Process uncached media in batches (max 4 per API call to stay within limits)
+        // Process uncached media in batches (max 4 per API call to stay within limits).
+        // Vision preprocessing is a separate billed call; record its spend in the ledger
+        // (via defer, so partial spend is captured even if a later batch throws).
+        var visionSpendUSD = 0.0
+        defer {
+            if visionSpendUSD > 0 {
+                KeychainHelper.recordOpenRouterSpend(visionSpendUSD)
+            }
+        }
         if !uncachedRefs.isEmpty {
             let batchSize = 4
             for batchStart in stride(from: 0, to: uncachedRefs.count, by: batchSize) {
@@ -1754,30 +1830,29 @@ actor OpenRouterService {
                 let batch = Array(uncachedRefs[batchStart..<batchEnd])
 
                 do {
-                    let descriptions = try await describeMediaBatch(batch.map { ($0.dataURL, $0.contentHash) })
+                    let (descriptions, batchSpendUSD) = try await describeMediaBatch(batch.map {
+                        VisionMediaItem(dataURL: $0.dataURL, contentHash: $0.contentHash, label: $0.label)
+                    })
+                    if let batchSpendUSD { visionSpendUSD += batchSpendUSD }
 
                     var toCache: [String: String] = [:]
                     for ref in batch {
-                        if let description = descriptions[ref.contentHash] {
-                            replacePartWithText(in: &apiMessages, messageIndex: ref.messageIndex,
-                                                partIndex: ref.partIndex, text: description)
-                            toCache[ref.contentHash] = description
-                        } else {
-                            // Fallback: remove the image part and note the failure
-                            replacePartWithText(in: &apiMessages, messageIndex: ref.messageIndex,
-                                                partIndex: ref.partIndex,
-                                                text: "[Media could not be described — vision model returned no result]")
+                        guard let description = descriptions[ref.contentHash],
+                              !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            throw OpenRouterError.apiError("Vision preprocessing returned no result for \(ref.label)")
                         }
+                        replacePartWithText(
+                            in: &apiMessages,
+                            messageIndex: ref.messageIndex,
+                            partIndex: ref.partIndex,
+                            text: wrapVisionProxyText(description, label: ref.label, dataURL: ref.dataURL)
+                        )
+                        toCache[ref.contentHash] = description
                     }
                     await VisionPreprocessorCache.shared.saveMultiple(toCache)
                 } catch {
                     print("[OpenRouterService] Vision preprocessing failed: \(error.localizedDescription)")
-                    // On failure, replace with error notes rather than sending images to a text-only model
-                    for ref in batch {
-                        replacePartWithText(in: &apiMessages, messageIndex: ref.messageIndex,
-                                            partIndex: ref.partIndex,
-                                            text: "[Media preprocessing failed: \(error.localizedDescription)]")
-                    }
+                    throw error
                 }
             }
         }
@@ -1787,6 +1862,183 @@ actor OpenRouterService {
             print("[OpenRouterService] Text-only preprocessing: replaced \(totalProcessed) media part(s) " +
                   "(\(cachedReplacements.count) cached, \(uncachedRefs.count) described)")
         }
+    }
+
+    private func inferredMediaLabelsByPartIndex(from parts: [ContentPart]) -> [Int: String] {
+        let mediaPartIndices = parts.enumerated().compactMap { index, part -> Int? in
+            switch part {
+            case .image, .file: return index
+            case .text: return nil
+            }
+        }
+        guard !mediaPartIndices.isEmpty else { return [:] }
+
+        var labels: [String] = []
+        for part in parts {
+            guard case .text(let text, _) = part else { continue }
+            labels.append(contentsOf: mediaLabels(fromText: text))
+        }
+
+        var labelsByPartIndex: [Int: String] = [:]
+        for (offset, partIndex) in mediaPartIndices.enumerated() {
+            if offset < labels.count {
+                labelsByPartIndex[partIndex] = labels[offset]
+            }
+        }
+        return labelsByPartIndex
+    }
+
+    private func mediaLabels(fromText text: String) -> [String] {
+        var labels: [String] = []
+        for segment in bracketedSegments(in: text) {
+            let lowered = segment.lowercased()
+            if lowered.hasPrefix("image:") {
+                labels.append("Image \(cleanMediaLabel(String(segment.dropFirst("image:".count))))")
+            } else if lowered.hasPrefix("referenced image:") {
+                labels.append("Referenced image \(cleanMediaLabel(String(segment.dropFirst("referenced image:".count))))")
+            } else if lowered.hasPrefix("document:") {
+                labels.append(contentsOf: documentLabels(
+                    prefix: "Document",
+                    raw: String(segment.dropFirst("document:".count))
+                ))
+            } else if lowered.hasPrefix("referenced document:") {
+                labels.append(contentsOf: documentLabels(
+                    prefix: "Referenced document",
+                    raw: String(segment.dropFirst("referenced document:".count))
+                ))
+            } else if lowered.contains("visible inline:") || lowered.contains("following file(s)") {
+                labels.append(contentsOf: toolAttachmentLabels(from: segment))
+            }
+        }
+        return labels
+    }
+
+    private func bracketedSegments(in text: String) -> [String] {
+        var segments: [String] = []
+        var searchStart = text.startIndex
+        while let open = text[searchStart...].firstIndex(of: "["),
+              let close = text[open...].firstIndex(of: "]") {
+            let segmentStart = text.index(after: open)
+            if segmentStart < close {
+                segments.append(String(text[segmentStart..<close]))
+            }
+            searchStart = text.index(after: close)
+            if searchStart >= text.endIndex { break }
+        }
+        return segments
+    }
+
+    private func documentLabels(prefix: String, raw: String) -> [String] {
+        let cleaned = cleanMediaLabel(raw)
+        let pageCount = pageCountHint(in: cleaned)
+        let filename = cleaned.replacingOccurrences(
+            of: #"\s*\(\d+\s+pages?\)"#,
+            with: "",
+            options: .regularExpression
+        )
+        if pageCount > 1 {
+            return (1...pageCount).map { "\(prefix) \(filename), page \($0) of \(pageCount)" }
+        }
+        return ["\(prefix) \(filename)"]
+    }
+
+    private func toolAttachmentLabels(from segment: String) -> [String] {
+        let lowered = segment.lowercased()
+        let marker: String
+        if lowered.contains("visible inline:") {
+            marker = "visible inline:"
+        } else if lowered.contains("following file(s)") {
+            marker = "following file(s)"
+        } else {
+            return []
+        }
+
+        guard let markerRange = lowered.range(of: marker) else { return [] }
+        let markerEndOffset = lowered.distance(from: lowered.startIndex, to: markerRange.upperBound)
+        let markerEnd = segment.index(segment.startIndex, offsetBy: markerEndOffset)
+        var listText = String(segment[markerEnd...])
+        if marker == "following file(s)",
+           let colonRange = listText.range(of: ":") {
+            listText = String(listText[colonRange.upperBound...])
+        }
+        if let period = listText.firstIndex(of: ".") {
+            listText = String(listText[..<period])
+        }
+
+        return listText
+            .split(separator: ",")
+            .flatMap { entry -> [String] in
+                toolAttachmentEntryLabels(raw: String(entry))
+            }
+    }
+
+    private func toolAttachmentEntryLabels(raw: String) -> [String] {
+        let cleaned = cleanMediaLabel(raw)
+        let filename = cleaned.replacingOccurrences(
+            of: #"\s*\(\d+\s+pages?\)"#,
+            with: "",
+            options: .regularExpression
+        )
+        let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+        if ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff", "tif"].contains(ext) {
+            return ["Tool image \(filename)"]
+        }
+        return documentLabels(prefix: "Tool document", raw: raw)
+    }
+
+    private func cleanMediaLabel(_ raw: String) -> String {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let separator = cleaned.range(of: " — ") ?? cleaned.range(of: " - ") {
+            cleaned = String(cleaned[..<separator.lowerBound])
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func pageCountHint(in text: String) -> Int {
+        guard let regex = try? NSRegularExpression(pattern: #"(\d+)\s+pages?"#) else { return 1 }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: nsRange),
+              match.numberOfRanges >= 2,
+              let range = Range(match.range(at: 1), in: text),
+              let value = Int(text[range]) else {
+            return 1
+        }
+        return max(value, 1)
+    }
+
+    private func fallbackMediaLabel(partIndex: Int, dataURL: String) -> String {
+        let mime = mimeType(fromDataURL: dataURL) ?? "media"
+        if mime == "application/pdf" {
+            return "PDF document part \(partIndex + 1)"
+        }
+        if mime.hasPrefix("image/") {
+            return "Image part \(partIndex + 1)"
+        }
+        return "Media part \(partIndex + 1)"
+    }
+
+    private func mimeType(fromDataURL dataURL: String) -> String? {
+        guard let dataRange = dataURL.range(of: "data:"),
+              let semiRange = dataURL.range(of: ";", range: dataRange.upperBound..<dataURL.endIndex) else {
+            return nil
+        }
+        return String(dataURL[dataRange.upperBound..<semiRange.lowerBound])
+    }
+
+    private func isDocumentLikeForPreprocessing(label: String, mimeType: String?) -> Bool {
+        let loweredLabel = label.lowercased()
+        let loweredMime = mimeType?.lowercased() ?? ""
+        return loweredMime == "application/pdf"
+            || loweredMime.hasPrefix("text/")
+            || loweredLabel.contains("document")
+            || loweredLabel.contains("pdf")
+            || loweredLabel.contains("page ")
+    }
+
+    private func wrapVisionProxyText(_ text: String, label: String, dataURL: String) -> String {
+        let mime = mimeType(fromDataURL: dataURL)
+        let kind = isDocumentLikeForPreprocessing(label: label, mimeType: mime) ? "transcription" : "description"
+        return "[Vision \(kind) for \(label)]\n\(text)"
     }
 
     /// Replace a single ContentPart at the given indices with a text part.
@@ -1808,7 +2060,7 @@ actor OpenRouterService {
 
     /// Send a batch of media data URLs to the vision preprocessor model for description.
     /// Images get exhaustive visual descriptions; PDFs get verbatim text transcription.
-    private func describeMediaBatch(_ items: [(dataURL: String, contentHash: String)]) async throws -> [String: String] {
+    private func describeMediaBatch(_ items: [VisionMediaItem]) async throws -> (descriptions: [String: String], spendUSD: Double?) {
         guard !apiKey.isEmpty else {
             throw OpenRouterError.apiError("Vision preprocessing requires an OpenRouter API key")
         }
@@ -1816,26 +2068,27 @@ actor OpenRouterService {
         var contentParts: [ContentPart] = []
         var hashOrder: [String] = []
         var mimeTypes: [String: String] = [:]  // hash -> mime type
+        var labels: [String: String] = [:]     // hash -> prompt-facing label
 
-        for (dataURL, hash) in items {
-            contentParts.append(.image(ImageURL(url: dataURL)))
-            hashOrder.append(hash)
+        for item in items {
+            contentParts.append(.image(ImageURL(url: item.dataURL)))
+            hashOrder.append(item.contentHash)
+            labels[item.contentHash] = item.label
             // Extract MIME type from data URL for prompt differentiation
-            if let mimeRange = dataURL.range(of: "data:"),
-               let semiRange = dataURL.range(of: ";", range: mimeRange.upperBound..<dataURL.endIndex) {
-                mimeTypes[hash] = String(dataURL[mimeRange.upperBound..<semiRange.lowerBound])
+            if let mime = mimeType(fromDataURL: item.dataURL) {
+                mimeTypes[item.contentHash] = mime
             }
         }
 
         // Build differentiated prompt based on content types
         let itemDescriptions = hashOrder.enumerated().map { (idx, hash) -> String in
             let mime = mimeTypes[hash] ?? "unknown"
-            let label = "Item \(idx + 1) [\(hash)]"
-            if mime == "application/pdf" || mime.hasPrefix("image/png") {
-                // Could be a rendered PDF page — use transcription-oriented prompt
-                return "\(label): If this is a document or page with text, provide VERBATIM text transcription preserving structure (headings, tables as markdown, bullet points, paragraphs). If it is a photo or illustration, provide an exhaustive visual description."
+            let label = labels[hash] ?? "Item \(idx + 1)"
+            let itemLabel = "Item \(idx + 1) [\(hash)] - \(label)"
+            if isDocumentLikeForPreprocessing(label: label, mimeType: mime) {
+                return "\(itemLabel): Provide VERBATIM text transcription preserving structure (headings, tables as markdown, bullet points, paragraphs). If there are diagrams or non-text visual elements, describe them after the transcription."
             } else {
-                return "\(label): Provide an exhaustive visual description — every visible element, text, layout, spatial relationships, colors, quantities, and notable details."
+                return "\(itemLabel): Provide an exhaustive visual description - every visible element, text, layout, spatial relationships, colors, quantities, and notable details. Transcribe any visible text exactly."
             }
         }.joined(separator: "\n")
 
@@ -1870,7 +2123,7 @@ actor OpenRouterService {
             model: visionModel,
             messages: messages,
             tools: nil,
-            provider: providers(for: visionModel).map {
+            provider: providersForVisionPreprocessor(visionModel).map {
                 ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
             },
             reasoning: nil
@@ -1899,6 +2152,13 @@ actor OpenRouterService {
         }
 
         let apiResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: data)
+
+        let directCost = apiResponse.usage?.cost?.value
+        let upstreamInferenceCost = apiResponse.usage?.costDetails?.upstreamInferenceCost?.value
+        let spendUSD = [directCost, upstreamInferenceCost]
+            .compactMap { $0 }
+            .filter { $0.isFinite && $0 >= 0 }
+            .max()
 
         guard let content = apiResponse.choices.first?.message.content else {
             throw OpenRouterError.noContent
@@ -1948,7 +2208,10 @@ actor OpenRouterService {
         }
 
         print("[OpenRouterService] Vision preprocessing: got \(descriptions.count) description(s)")
-        return descriptions
+        if let spendUSD {
+            print("[OpenRouterService] Vision preprocessing spend: $\(formatUSD(spendUSD))")
+        }
+        return (descriptions, spendUSD)
     }
 
     // MARK: - File Description Generation

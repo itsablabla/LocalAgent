@@ -72,6 +72,10 @@ class ConversationManager: ObservableObject {
         didSet { saveContextUsageSnapshot() }
     }
 
+    /// Memoized vision-proxy content hashes, keyed by file identity (path/size/mtime/mime),
+    /// so repeated budgeting passes don't re-read and re-base64 the same attachment.
+    private var budgetContentHashCache: [String: String] = [:]
+
     private struct ContextUsageSnapshot: Codable {
         let lastPromptTokens: Int?
         let lastCompletionTokens: Int?
@@ -2384,9 +2388,75 @@ class ConversationManager: ObservableObject {
         return min(80_000, max(pages * 300, min(byteBased, pages * 1_800)))
     }
 
+    /// Content hash for the vision-proxy cache lookup, memoized by file identity so
+    /// repeated budgeting passes within a turn don't re-read and re-base64 the same file.
+    private func budgetContentHash(data: Data?, url: URL?, mimeType: String) -> String? {
+        if let data {
+            return VisionPreprocessorCache.contentHash("data:\(mimeType);base64,\(data.base64EncodedString())")
+        }
+        guard let url else { return nil }
+
+        let key: String
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
+            let size = (attrs[.size] as? Int) ?? -1
+            let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? -1
+            key = "\(url.path)|\(size)|\(mtime)|\(mimeType)"
+        } else {
+            key = "\(url.path)|\(mimeType)"
+        }
+        if let cached = budgetContentHashCache[key] { return cached }
+
+        guard let fileData = try? Data(contentsOf: url) else { return nil }
+        let hash = VisionPreprocessorCache.contentHash("data:\(mimeType);base64,\(fileData.base64EncodedString())")
+        budgetContentHashCache[key] = hash
+        return hash
+    }
+
+    private func estimatedTextOnlyProxyTokens(filename: String, data: Data? = nil, url: URL? = nil, mimeType: String, fallbackBytes: Int = 0) -> Int {
+        let normalized = normalizedMimeType(mimeType)
+        let bytes = data?.count ?? fileSize(at: url ?? URL(fileURLWithPath: filename), fallback: fallbackBytes)
+
+        if normalized.hasPrefix("image/") {
+            if let hash = budgetContentHash(data: data, url: url, mimeType: mimeType),
+               let cached = VisionPreprocessorCache.cachedDescriptionTokenEstimate(hash: hash) {
+                return cached
+            }
+            return max(500, min(4_000, estimatedImageTokens(data: data, url: url, fallbackBytes: bytes) / 2 + 500))
+        }
+
+        if normalized == "application/pdf" {
+            let document: PDFDocument? = {
+                if let data { return PDFDocument(data: data) }
+                if let url { return PDFDocument(url: url) }
+                return nil
+            }()
+            let pageCount = max(document?.pageCount ?? max(1, bytes / 100_000), 1)
+
+            if !currentPromptRequiresPDFToImageConversion(),
+               let hash = budgetContentHash(data: data, url: url, mimeType: mimeType),
+               let cached = VisionPreprocessorCache.cachedDescriptionTokenEstimate(hash: hash) {
+                return cached
+            }
+
+            let extractedText = (0..<pageCount).compactMap { document?.page(at: $0)?.string }.joined(separator: "\n")
+            let textTokens = extractedText.isEmpty ? 0 : extractedText.count / 4
+            return min(80_000, max(pageCount * 700, textTokens + pageCount * 150))
+        }
+
+        if normalized.hasPrefix("text/") || ["application/json", "application/xml"].contains(normalized) {
+            return max(20, min(80_000, bytes / 4 + 20))
+        }
+
+        return estimatedMediaHintTokens(filename: filename)
+    }
+
     private func estimatedInlineFileTokens(filename: String, data: Data? = nil, url: URL? = nil, mimeType: String, fallbackBytes: Int = 0, isLMStudio: Bool? = nil) -> Int {
         guard isInlineMimeTypeSupportedForBudget(mimeType) else {
             return estimatedMediaHintTokens(filename: filename)
+        }
+
+        if currentModelUsesTextOnlyVisionPreprocessing() {
+            return estimatedTextOnlyProxyTokens(filename: filename, data: data, url: url, mimeType: mimeType, fallbackBytes: fallbackBytes)
         }
 
         let normalized = normalizedMimeType(mimeType)
@@ -2403,6 +2473,16 @@ class ConversationManager: ObservableObject {
     private func estimatedInlineFileTokens(reference: FileAttachmentReference, isLMStudio: Bool) -> Int {
         guard isInlineMimeTypeSupportedForBudget(reference.mimeType) else {
             return estimatedMediaHintTokens(filename: reference.filename)
+        }
+
+        if currentModelUsesTextOnlyVisionPreprocessing() {
+            let url = reference.resolvedURL(imagesDirectory: imagesDirectory, documentsDirectory: documentsDirectory)
+            return estimatedTextOnlyProxyTokens(
+                filename: reference.filename,
+                url: url,
+                mimeType: reference.mimeType,
+                fallbackBytes: reference.byteSize ?? 0
+            )
         }
 
         let normalized = normalizedMimeType(reference.mimeType)
@@ -2429,6 +2509,16 @@ class ConversationManager: ObservableObject {
 
     private func currentProviderIsLMStudio() -> Bool {
         LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)) == .lmStudio
+    }
+
+    private func currentModelUsesTextOnlyVisionPreprocessing() -> Bool {
+        KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true"
+    }
+
+    private func currentPromptRequiresPDFToImageConversion() -> Bool {
+        if currentProviderIsLMStudio() { return true }
+        let model = (KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? "~google/gemini-flash-latest").lowercased()
+        return !model.contains("gemini")
     }
 
     private func estimatedMediaHintTokens(filename: String) -> Int {
@@ -4491,8 +4581,9 @@ class ConversationManager: ObservableObject {
         try? FileManager.default.removeItem(at: documentsDirectory)
         try? FileManager.default.createDirectory(at: documentsDirectory, withIntermediateDirectories: true)
 
-        // 6. Clear file descriptions
+        // 6. Clear file descriptions and text-only vision proxy cache.
         await FileDescriptionService.shared.clearAll()
+        await VisionPreprocessorCache.shared.clearAll()
 
         // 7. Clear files ledger (history of every file the agent has touched).
         await FilesLedger.shared.clearAll()
@@ -4551,6 +4642,7 @@ class ConversationManager: ObservableObject {
         await FilesLedger.shared.reloadFromDisk()
         await TodoStore.shared.reloadFromDisk()
         await FileDescriptionService.shared.reloadFromStorage()
+        await VisionPreprocessorCache.shared.reloadFromStorage()
         await SubagentSessionRegistry.shared.reloadFromDisk()
         print("[ConversationManager] Reloaded data after Mind restore")
     }

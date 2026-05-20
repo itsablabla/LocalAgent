@@ -7,7 +7,7 @@ import CryptoKit
 actor VisionPreprocessorCache {
     static let shared = VisionPreprocessorCache()
 
-    private let storageKey = "VisionPreprocessorDescriptions"
+    private static let storageKey = "VisionPreprocessorDescriptions"
     private var cache: [String: String] = [:]
     private var loaded = false
 
@@ -15,7 +15,7 @@ actor VisionPreprocessorCache {
 
     private func loadIfNeeded() {
         guard !loaded else { return }
-        if let data = UserDefaults.standard.data(forKey: storageKey),
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let descriptions = try? JSONDecoder().decode([String: String].self, from: data) {
             cache = descriptions
         }
@@ -24,7 +24,7 @@ actor VisionPreprocessorCache {
 
     private func persist() {
         if let data = try? JSONEncoder().encode(cache) {
-            UserDefaults.standard.set(data, forKey: storageKey)
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
     }
 
@@ -32,6 +32,22 @@ actor VisionPreprocessorCache {
     static func contentHash(_ dataURL: String) -> String {
         let digest = SHA256.hash(data: Data(dataURL.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Synchronous cache lookup for budgeting paths that cannot await the actor.
+    static func cachedDescriptionTokenEstimate(dataURL: String) -> Int? {
+        cachedDescriptionTokenEstimate(hash: contentHash(dataURL))
+    }
+
+    /// Synchronous cache lookup keyed by a precomputed content hash. Lets budgeting
+    /// callers reuse a memoized hash instead of re-encoding the file on every pass.
+    static func cachedDescriptionTokenEstimate(hash: String) -> Int? {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let descriptions = try? JSONDecoder().decode([String: String].self, from: data),
+              let description = descriptions[hash] else {
+            return nil
+        }
+        return max(description.count / 4, 1)
     }
 
     /// Get a cached description for a content hash, or nil if not cached.
@@ -59,7 +75,7 @@ actor VisionPreprocessorCache {
     /// Clear all cached descriptions.
     func clearAll() {
         cache.removeAll()
-        UserDefaults.standard.removeObject(forKey: storageKey)
+        UserDefaults.standard.removeObject(forKey: Self.storageKey)
     }
 
     /// Reload after a Mind restore.
