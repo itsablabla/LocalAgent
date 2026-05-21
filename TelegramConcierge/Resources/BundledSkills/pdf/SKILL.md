@@ -1,20 +1,45 @@
 ---
 name: pdf
-description: Generate polished PDFs of any kind — presentations, essays, reports, invoices, letters. Classify the document type first, then apply the rules for that type. Use when the user asks for a PDF, report, printable document, presentation, invoice, or contract.
+description: Generate polished PDFs of any kind — presentations, essays, reports, invoices, letters — with a render-to-PNG visual QA loop. Use when the user asks for a PDF, report, printable document, presentation, invoice, or contract.
 ---
 
 # PDF Skill
 
 PDFs are not one thing. A pitch deck and a research paper need opposite layout strategies: the deck needs visual variety between pages, the paper needs rigid consistency. **Classify the document type first**, then apply the rules for that type.
 
+## Codex-quality contract
+
+Good PDFs come from a render-and-revise loop, not from hoping the first HTML export is fine.
+
+Before delivering a PDF:
+
+1. Decide the document archetype and design system before drafting.
+2. Build source in HTML/CSS unless the user explicitly needs a different source format.
+3. Render the PDF.
+4. Render the PDF pages to PNGs and inspect those images at readable size.
+5. Fix objective layout defects and re-render. Repeat up to 3 times.
+
+The shipping gate is visual: all pages must look clean in rendered page images. Text extraction or a successful PDF file write is not enough.
+
+Use the bundled helper when possible:
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/render_pdf_pages.py output.pdf --out-dir pdf_qa
+```
+
+The helper prefers Poppler's `pdftoppm`, then `pymupdf` if installed. If neither renderer is available, use `read_file` on the PDF as the fallback visual check and state that PNG QA was unavailable only if the user asks about QA details.
+
+Keep scratch artifacts in a task-scoped folder such as `tmp/pdfs/<task-slug>/` or next to the generated source in `pdf_qa/`. Unless the user asks for intermediates, return only the final PDF.
+
 ## Workflow
 
 1. **Classify the document type** (see matrix below).
 2. **Pick the renderer** — `weasyprint` by default (Python-installable, great CSS support); `chromium --headless --print-to-pdf` for complex CSS (grid, flex edge cases). Never use imperative libraries (reportlab / fpdf) for flowing content.
-3. **Write one HTML + CSS file.** Baseline stylesheet below; type-specific additions in each section.
-4. **Render**: `weasyprint input.html output.pdf`
-5. **Verify visually.** `read_file` on the PDF — the rendered pages come back as inline multimodal content. Inspect every page of multi-page docs, not just page 1.
-6. **Fix objective bugs and re-render.** Cap at 3 iterations. Fix layout bugs, not subjective polish.
+3. **Plan the design** — page geometry, type scale, headings, tables/figures, callouts, headers/footers, and section breaks.
+4. **Write one HTML + CSS file.** Baseline stylesheet below; type-specific additions in each section.
+5. **Render**: `weasyprint input.html output.pdf`
+6. **Verify visually.** Prefer `render_pdf_pages.py` and inspect the PNG pages. If page rendering dependencies are unavailable, `read_file` on the PDF — the rendered pages come back as inline multimodal content. Inspect every page of multi-page docs, not just page 1.
+7. **Fix objective bugs and re-render.** Cap at 3 iterations. Fix layout bugs, not subjective polish.
 
 ## Document type matrix
 
@@ -30,6 +55,18 @@ PDFs are not one thing. A pitch deck and a research paper need opposite layout s
 Don't conflate types. A "report" with card grids and pullquotes is wrong; a pitch deck with 6 dense prose pages is wrong.
 
 ## Shared foundation
+
+### Pre-render design plan
+
+Write a short internal plan before generating the source:
+
+- **Archetype**: presentation, essay, report, transactional, letter, or brochure-adjacent.
+- **Page budget**: expected page count, density per page, and where intentional page breaks belong.
+- **Typography**: font stack, body size, heading ladder, line height, and page furniture.
+- **Information forms**: prose, list, table, chart, callout, figure, appendix, or form fields.
+- **Risk areas**: long tables, narrow columns, images, citations, page counters, headers/footers, or legal text.
+
+Then implement the plan through reusable CSS classes, not one-off inline styling. Revise the plan if the rendered pages show a better structure is needed.
 
 ### Typography baseline
 
@@ -63,9 +100,37 @@ blockquote { border-left: 3pt solid #bbb; margin: 0 0 1em; padding: 0 0 0 1em; c
 
 ### Verification (all types)
 
-- `read_file` the output. Inspect every page.
+- Prefer rendering pages to PNG with `render_pdf_pages.py`; inspect every page image. If unavailable, `read_file` the output PDF and inspect every page.
 - Check typography hierarchy, margins, page breaks, orphan headings, image overflow, table cutoffs, empty pages.
 - For data-heavy or visual content: also verify images render (not broken icons), tables fit page width, columns align.
+- Check that repeated page furniture is intentional and consistent: page numbers, running headers, footers, source notes, and appendix labels.
+- Do not deliver if any page has clipped text, overlapping elements, unreadable glyphs, broken images, tables cut at the page edge, large accidental blank gaps, or placeholder/tool-token text.
+
+### Tables, figures, and forms
+
+Tables and form-like layouts are where most bad PDFs show their seams.
+
+- Use tables only for repeated records with shared fields. Do not package normal prose into table cells.
+- Set deliberate column widths. Short values such as dates, quantities, status, currency, and checkmarks should be compact; narrative columns get the width.
+- Use `table-layout: fixed` when it prevents width drift, but allow row height to expand. Never clip rows to a fixed height.
+- Give cells enough padding and line-height that text does not look pinned to borders.
+- Align by data type: right-align numbers, center compact statuses/dates, left-align narrative text.
+- Repeat table headers on page breaks when the renderer supports it.
+- Keep captions visually paired with figures/tables; avoid a caption at the bottom of one page and its object on the next.
+- For forms, make fields large enough to use. Avoid dense spreadsheet-like grids unless the user requested a spreadsheet-style form.
+
+### Visual QA loop
+
+For each render pass, inspect in this order:
+
+1. **Page scan**: page count, no blank pages, no obvious top/bottom clipping.
+2. **Hierarchy**: title, headings, body, captions, footnotes are visually distinct.
+3. **Flow**: no orphan headings, stranded captions, accidental half-empty content pages, or awkward section breaks.
+4. **Objects**: tables fit, figures are sharp, charts have readable labels, images are not broken.
+5. **Furniture**: page numbers, headers, footers, source notes, and legal/footer text are present and aligned.
+6. **Content hygiene**: no placeholders, lorem ipsum, hidden TODOs, raw tool tokens, or citation debris.
+
+Only iterate on objective defects. Stop after 3 QA loops and tell the user what remains if a renderer or source limitation prevents a clean result.
 
 ## Presentation
 
@@ -224,6 +289,11 @@ Out of scope. Brochures depend on brand identity, imagery decisions, and visual 
 | Essay has pullquotes or card grids | Misclassified as presentation | Strip decorative elements; essays want consistency |
 | Invoice columns misaligned | Mixed numeric + text columns, no tabular figures | `font-variant-numeric: tabular-nums` on numeric cells |
 | Tables cut at page breaks | No `page-break-inside: avoid` on rows | Add to `tr` |
+| Text looks pinned inside table cells | Insufficient padding or line-height | Increase `td/th` padding and line-height; adjust vertical alignment |
+| Caption separated from figure/table | Page break between related elements | Wrap in `figure` or a keep-together container with `page-break-inside: avoid` |
+| Repeated table header missing | Renderer/table CSS not configured | Use semantic `thead`; for WeasyPrint, ensure header rows are in `<thead>` |
+| Large blank gap before a table/figure | Object cannot fit in remaining page space | Split the table, shrink object modestly, or move the section break intentionally |
+| PNG QA shows different layout than expected | Browser/WeasyPrint CSS mismatch | Use the renderer's supported CSS subset; simplify grid/flex if needed |
 
 ## Images and figures
 
