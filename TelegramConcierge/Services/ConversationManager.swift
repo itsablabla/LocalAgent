@@ -1200,6 +1200,7 @@ class ConversationManager: ObservableObject {
         case "Agent": return "🤖"
         case "subagent_manage": return "🤖"
         case "generate_image": return "🎨"
+        case "inspect_media": return "🔍"
         case "manage_reminders": return "⏰"
         case "write_file", "edit_file", "apply_patch": return "✏️"
         case "read_file", "grep", "glob", "list_dir", "list_recent_files": return "🔎"

@@ -62,12 +62,38 @@ actor OpenRouterService {
     /// The main model may be pinned to a text-only provider, which would otherwise break
     /// preprocessing even when the configured vision model is valid.
     private func providersForVisionPreprocessor(_ requestedModel: String) -> [String]? {
+        if let configured = configuredVisionPreprocessorProviders {
+            return configured
+        }
+
         let normalized = requestedModel.lowercased()
         if requestedModel == KeychainHelper.defaultVisionPreprocessorModel
             || normalized.contains("google/gemini") {
             return ["google-ai-studio"]
         }
         return nil
+    }
+
+    private var configuredVisionPreprocessorProviders: [String]? {
+        let raw = KeychainHelper.load(key: KeychainHelper.visionPreprocessorProviderKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let providers = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return providers.isEmpty ? nil : providers
+    }
+
+    private func providerPreferencesForVisionPreprocessor(_ requestedModel: String) -> ProviderPreferences? {
+        providersForVisionPreprocessor(requestedModel).map {
+            ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
+        }
+    }
+
+    private var visionPreprocessorReasoningConfig: ReasoningConfig? {
+        let effort = KeychainHelper.load(key: KeychainHelper.visionPreprocessorReasoningEffortKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return effort.isEmpty ? nil : ReasoningConfig(effort: effort)
     }
 
     /// Returns the user-configured reasoning effort, defaulting to "high" for Gemini models
@@ -2085,10 +2111,8 @@ actor OpenRouterService {
             model: visionModel,
             messages: messages,
             tools: nil,
-            provider: providersForVisionPreprocessor(visionModel).map {
-                ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
-            },
-            reasoning: nil
+            provider: providerPreferencesForVisionPreprocessor(visionModel),
+            reasoning: visionPreprocessorReasoningConfig
         )
 
         var urlRequest = URLRequest(url: URL(string: openRouterBaseURL)!)
@@ -2174,6 +2198,110 @@ actor OpenRouterService {
             print("[OpenRouterService] Vision preprocessing spend: $\(formatUSD(spendUSD))")
         }
         return (descriptions, spendUSD)
+    }
+
+    /// Ask the configured vision preprocessor model a focused question about one
+    /// media item. Used by the text-only-only `inspect_media` tool when the broad
+    /// OCR/vision proxy omitted a detail the main agent now needs.
+    func inspectMedia(
+        filename: String,
+        data: Data,
+        mimeType: String,
+        question: String,
+        pages: String? = nil,
+        regionHint: String? = nil
+    ) async throws -> (answer: String, spendUSD: Double?) {
+        guard !apiKey.isEmpty else {
+            throw OpenRouterError.apiError("inspect_media requires an OpenRouter API key")
+        }
+
+        let visionModel = visionPreprocessorModel
+        let normalizedMime = normalizeMimeType(mimeType)
+        var contentParts: [ContentPart] = []
+
+        if normalizedMime == "application/pdf",
+           !visionModel.lowercased().contains("gemini") {
+            let renderedPages = renderPDFPagesToImages(data, filename: filename)
+            guard !renderedPages.isEmpty else {
+                throw OpenRouterError.apiError("inspect_media could not render PDF pages for \(filename)")
+            }
+            contentParts.append(contentsOf: renderedPages)
+        } else {
+            let base64String = data.base64EncodedString()
+            let dataURL = "data:\(mimeType);base64,\(base64String)"
+            contentParts.append(.image(ImageURL(url: dataURL)))
+        }
+
+        let trimmedRegionHint = regionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let regionLine = trimmedRegionHint.isEmpty ? "" : "Region hint: \(trimmedRegionHint)\n"
+        let trimmedPages = pages?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let pagesLine = trimmedPages.isEmpty ? "" : "PDF pages provided: \(trimmedPages)\n"
+
+        let prompt = """
+        You are inspecting a media file for a text-only agent. The broad OCR/vision \
+        proxy may have missed the exact detail the agent now needs.
+
+        File: \(filename)
+        MIME type: \(mimeType)
+        \(pagesLine)\(regionLine)
+        Focused question:
+        \(question)
+
+        Answer only the focused question. Inspect the original media carefully, especially \
+        the hinted region if one is provided. Transcribe exact visible text, numbers, labels, \
+        table values, UI copy, or chart values when relevant. If the requested detail is not \
+        visible or you are uncertain, say that explicitly and explain what is visible instead. \
+        Do not invent missing details and do not summarize unrelated parts of the file.
+        """
+        contentParts.append(.text(prompt))
+
+        let messages: [OpenRouterAPIMessage] = [
+            OpenRouterAPIMessage(role: "system", content: .text(
+                "You are a careful vision inspection assistant. Answer targeted questions about images and documents with exact visible evidence."
+            )),
+            OpenRouterAPIMessage(role: "user", content: .parts(contentParts))
+        ]
+
+        let request = OpenRouterRequest(
+            model: visionModel,
+            messages: messages,
+            tools: nil,
+            provider: providerPreferencesForVisionPreprocessor(visionModel),
+            reasoning: visionPreprocessorReasoningConfig
+        )
+
+        var urlRequest = URLRequest(url: URL(string: openRouterBaseURL)!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.timeoutInterval = 120
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+
+        print("[OpenRouterService] inspect_media: asking \(visionModel) about \(filename)")
+        let (responseData, _) = try await sendChatRequestWithRetry(
+            urlRequest,
+            providerLabel: "OpenRouter vision inspect",
+            model: visionModel
+        )
+
+        let apiResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
+        let directCost = apiResponse.usage?.cost?.value
+        let upstreamInferenceCost = apiResponse.usage?.costDetails?.upstreamInferenceCost?.value
+        let spendUSD = [directCost, upstreamInferenceCost]
+            .compactMap { $0 }
+            .filter { $0.isFinite && $0 >= 0 }
+            .max()
+
+        guard let answer = apiResponse.choices.first?.message.content?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !answer.isEmpty else {
+            throw OpenRouterError.noContent
+        }
+
+        if let spendUSD {
+            print("[OpenRouterService] inspect_media spend: $\(formatUSD(spendUSD))")
+        }
+        return (answer, spendUSD)
     }
 
     // MARK: - File Description Generation

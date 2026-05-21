@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import PDFKit
 
 // MARK: - Tool Executor
 
@@ -188,7 +189,7 @@ actor ToolExecutor {
     /// compact, single-line summary in the telemetry view. Falls back to the
     /// first 60 chars of the raw arg string when parsing fails.
     static func shortArgSummary(_ jsonArgs: String) -> String {
-        let preferredKeys = ["path", "file_path", "handle", "query", "command", "url", "pattern", "search_term", "target"]
+        let preferredKeys = ["path", "file_path", "filename", "handle", "query", "question", "command", "url", "pattern", "search_term", "target"]
         if let data = jsonArgs.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             var parts: [String] = []
@@ -232,6 +233,8 @@ actor ToolExecutor {
             return try await executeDeepResearch(call)
         case "Agent":
             return await executeAgentToolResult(call)
+        case "inspect_media":
+            return await executeInspectMedia(call)
         default:
             break
         }
@@ -372,6 +375,228 @@ actor ToolExecutor {
                 spendUSD: spendUSD
             )
         }
+    }
+
+    private func executeInspectMedia(_ call: ToolCall) async -> ToolResultMessage {
+        guard KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true" else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "inspect_media is only available when Text-only model is enabled."])
+            )
+        }
+
+        guard let args = parseJSONArguments(call.function.arguments) else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "Failed to parse inspect_media arguments"])
+            )
+        }
+
+        guard let target = firstString(in: args, keys: ["filename", "path", "file"]) else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "inspect_media requires 'filename'"])
+            )
+        }
+        guard let question = firstString(in: args, keys: ["question", "prompt"]) else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "inspect_media requires 'question'"])
+            )
+        }
+
+        let pages = firstString(in: args, keys: ["pages", "page"])
+        let regionHint = firstString(in: args, keys: ["region_hint", "region", "area"])
+
+        guard let service = openRouterService else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "OpenRouter service is not configured for inspect_media."])
+            )
+        }
+
+        guard let mediaURL = resolveInspectableMediaURL(target) else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "Media file not found: \(target)"])
+            )
+        }
+
+        let mimeType = FilesystemTools.mimeType(forPath: mediaURL.path)
+        guard FilesystemTools.isMultimodalMime(mimeType) else {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "inspect_media supports images and PDFs only. \(mediaURL.path) has MIME type \(mimeType)."])
+            )
+        }
+
+        let loaded: InspectableMediaData
+        do {
+            loaded = try loadInspectableMediaData(url: mediaURL, mimeType: mimeType, pages: pages)
+        } catch {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": error.localizedDescription])
+            )
+        }
+
+        do {
+            let inspection = try await service.inspectMedia(
+                filename: mediaURL.lastPathComponent,
+                data: loaded.data,
+                mimeType: loaded.mimeType,
+                question: question,
+                pages: loaded.pageRange,
+                regionHint: regionHint
+            )
+
+            var payload: [String: Any] = [
+                "success": true,
+                "filename": mediaURL.lastPathComponent,
+                "path": mediaURL.path,
+                "mime_type": loaded.mimeType,
+                "question": question,
+                "answer": inspection.answer
+            ]
+            if let pageRange = loaded.pageRange { payload["pages"] = pageRange }
+            if let totalPages = loaded.totalPages { payload["total_pages"] = totalPages }
+            if let regionHint { payload["region_hint"] = regionHint }
+            if let spendUSD = inspection.spendUSD { payload["spend_usd"] = spendUSD }
+
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(payload),
+                spendUSD: inspection.spendUSD
+            )
+        } catch {
+            return ToolResultMessage(
+                toolCallId: call.id,
+                content: jsonObjectString(["error": "inspect_media failed: \(error.localizedDescription)"])
+            )
+        }
+    }
+
+    private struct InspectableMediaData {
+        let data: Data
+        let mimeType: String
+        let pageRange: String?
+        let totalPages: Int?
+    }
+
+    private func parseJSONArguments(_ json: String) -> [String: Any]? {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
+    private func firstString(in args: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = args[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let number = args[key] as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
+    }
+
+    private func resolveInspectableMediaURL(_ rawTarget: String) -> URL? {
+        let normalized = FilesystemTools.normalizePath(rawTarget)
+        let fm = FileManager.default
+        if FilesystemTools.isAbsolute(normalized), fm.fileExists(atPath: normalized) {
+            return URL(fileURLWithPath: normalized)
+        }
+
+        let basename = (normalized as NSString).lastPathComponent
+        guard !basename.isEmpty else { return nil }
+
+        let candidates = [
+            imagesDirectory.appendingPathComponent(basename),
+            documentsDirectory.appendingPathComponent(basename)
+        ]
+        return candidates.first { fm.fileExists(atPath: $0.path) }
+    }
+
+    private func loadInspectableMediaData(url: URL, mimeType: String, pages: String?) throws -> InspectableMediaData {
+        if mimeType == "application/pdf" {
+            return try loadInspectablePDFData(url: url, pages: pages)
+        }
+
+        let data = try Data(contentsOf: url)
+        return InspectableMediaData(data: data, mimeType: mimeType, pageRange: nil, totalPages: nil)
+    }
+
+    private func loadInspectablePDFData(url: URL, pages: String?) throws -> InspectableMediaData {
+        guard let document = PDFDocument(url: url) else {
+            throw NSError(domain: "InspectMedia", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "failed to open PDF: \(url.path)"
+            ])
+        }
+        let totalPages = document.pageCount
+        guard totalPages > 0 else {
+            throw NSError(domain: "InspectMedia", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "PDF \(url.path) has zero pages."
+            ])
+        }
+
+        let requestedRange: ClosedRange<Int>
+        if let rawPages = pages?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPages.isEmpty {
+            guard let parsed = FilesystemTools.parsePageRange(rawPages, totalPages: totalPages) else {
+                throw NSError(domain: "InspectMedia", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "invalid pages value '\(rawPages)'. Use formats like '3', '1-5', or '10-20'. PDF has \(totalPages) pages."
+                ])
+            }
+            requestedRange = parsed
+        } else if totalPages > FilesystemTools.pdfPagesRequiredThreshold {
+            throw NSError(domain: "InspectMedia", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "PDF \(url.path) has \(totalPages) pages. Specify a page range via the 'pages' parameter, e.g. pages=\"1-5\". Max \(FilesystemTools.pdfMaxPagesPerCall) pages per call."
+            ])
+        } else {
+            requestedRange = 1...totalPages
+        }
+
+        let pageCount = requestedRange.upperBound - requestedRange.lowerBound + 1
+        guard pageCount <= FilesystemTools.pdfMaxPagesPerCall else {
+            throw NSError(domain: "InspectMedia", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "page range spans \(pageCount) pages. Max \(FilesystemTools.pdfMaxPagesPerCall) pages per inspect_media call."
+            ])
+        }
+
+        let data: Data
+        if requestedRange.lowerBound == 1 && requestedRange.upperBound == totalPages {
+            data = try Data(contentsOf: url)
+        } else {
+            let sliced = PDFDocument()
+            var insertIndex = 0
+            for pageNumber in requestedRange {
+                if let page = document.page(at: pageNumber - 1) {
+                    sliced.insert(page, at: insertIndex)
+                    insertIndex += 1
+                }
+            }
+            guard let slicedData = sliced.dataRepresentation() else {
+                throw NSError(domain: "InspectMedia", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to serialize PDF pages \(requestedRange.lowerBound)-\(requestedRange.upperBound)."
+                ])
+            }
+            data = slicedData
+        }
+
+        let pageRange = "\(requestedRange.lowerBound)-\(requestedRange.upperBound)"
+        return InspectableMediaData(data: data, mimeType: "application/pdf", pageRange: pageRange, totalPages: totalPages)
+    }
+
+    private func jsonObjectString(_ object: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return #"{"error":"failed to encode tool result"}"#
+        }
+        return text
     }
     
     private func executeManageReminders(_ call: ToolCall) async throws -> String {

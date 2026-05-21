@@ -78,7 +78,7 @@ enum SubagentTypes {
         allowedToolNames: [
             "read_file", "grep", "glob", "list_dir", "list_recent_files",
             "lsp",
-            "web_fetch", "web_search", "bash"
+            "web_fetch", "web_search", "bash", "inspect_media"
         ],
         defaultMaxTurns: 80,
         preferredModel: .inherit
@@ -92,7 +92,7 @@ enum SubagentTypes {
         allowedToolNames: [
             "read_file", "grep", "glob", "list_dir", "list_recent_files",
             "lsp",
-            "web_fetch", "web_search", "bash"
+            "web_fetch", "web_search", "bash", "inspect_media"
         ],
         defaultMaxTurns: 80,
         preferredModel: .inherit
@@ -106,7 +106,7 @@ enum SubagentTypes {
         description: "browser automation via Playwright MCP",
         systemPromptSuffix:
             "You are a browser automation specialist. Use the mcp__playwright__* tools to navigate, snapshot, click, type, and evaluate pages. Prefer `browser_snapshot` (cheap, structured accessibility tree) over `browser_take_screenshot` unless a visual is specifically requested. Return a concise report with what you found, what you clicked, and any extracted data. If navigating to a sensitive site (bank, admin console), stop and report back rather than acting.",
-        allowedToolNames: ["read_file", "grep", "bash", "web_fetch"],
+        allowedToolNames: ["read_file", "grep", "bash", "web_fetch", "inspect_media"],
         defaultMaxTurns: 80,
         preferredModel: .inherit,
         mcpToolPatterns: ["mcp__playwright__*"]
@@ -120,7 +120,7 @@ enum SubagentTypes {
         description: "SQL database exploration and query",
         systemPromptSuffix:
             "You are a database analysis specialist. Use the mcp__postgres__* / mcp__sqlite__* / mcp__mysql__* tools (whichever are present) to list schemas, inspect tables, and run read queries. For destructive writes (INSERT/UPDATE/DELETE/DROP), stop and confirm intent before executing. Return results as a concise summary with row counts and key values — do not dump large tables verbatim.",
-        allowedToolNames: ["read_file", "grep", "bash"],
+        allowedToolNames: ["read_file", "grep", "bash", "inspect_media"],
         defaultMaxTurns: 80,
         preferredModel: .inherit,
         mcpToolPatterns: ["mcp__postgres__*", "mcp__sqlite__*", "mcp__mysql__*"]

@@ -275,7 +275,7 @@ enum SubagentTemplates {
                 description: "Drives a browser via Playwright MCP to navigate, snapshot, click, and extract data.",
                 systemPrompt:
                     "You are a browser automation specialist. Use the mcp__playwright__* tools to navigate, snapshot, click, type, and evaluate pages. Prefer `browser_snapshot` over `browser_take_screenshot` unless a visual is specifically requested — it's cheaper and more structured. When handing results back, include what you navigated to, what you interacted with, and any extracted text verbatim. If a site asks to log in or looks sensitive (banking, admin), stop and report back rather than acting.",
-                nativeTools: ["read_file", "grep", "bash", "web_fetch"],
+                nativeTools: ["read_file", "grep", "bash", "web_fetch", "inspect_media"],
                 mcpToolPatterns: ["mcp__playwright__*"],
                 model: "inherit",
                 maxTurns: 25
@@ -289,7 +289,7 @@ enum SubagentTemplates {
                 description: "Reads broadly and returns findings with verbatim quotes and citations.",
                 systemPrompt:
                     "You are a read-only research analyst. Gather information from the codebase and the web, then return a structured report with quotes, file paths, and URLs. Do not modify files. Prioritize accuracy over speed — verify claims with two sources when possible. Output as bullet points under short headers, ending with a 'Confidence' line (high/medium/low) per claim.",
-                nativeTools: ["read_file", "grep", "glob", "list_dir", "lsp", "web_search", "web_fetch"],
+                nativeTools: ["read_file", "grep", "glob", "list_dir", "lsp", "web_search", "web_fetch", "inspect_media"],
                 mcpToolPatterns: nil,
                 model: "inherit",
                 maxTurns: 20
@@ -303,7 +303,7 @@ enum SubagentTemplates {
                 description: "Designs a step-by-step plan with critical files, sequencing, and risks.",
                 systemPrompt:
                     "You are a software architect. Read relevant code, then return a sequenced plan: (1) goal, (2) files to touch with brief why, (3) order of operations, (4) risks + rollback, (5) verification steps. Do not modify files. Be concrete — no hand-waving like 'then handle errors'.",
-                nativeTools: ["read_file", "grep", "glob", "list_dir", "list_recent_files", "lsp", "web_fetch", "web_search"],
+                nativeTools: ["read_file", "grep", "glob", "list_dir", "list_recent_files", "lsp", "web_fetch", "web_search", "inspect_media"],
                 mcpToolPatterns: nil,
                 model: "inherit",
                 maxTurns: 20
@@ -317,7 +317,7 @@ enum SubagentTemplates {
                 description: "Inspects SQL schemas and runs read queries via the postgres/sqlite/mysql MCP.",
                 systemPrompt:
                     "You are a database analyst. Use the mcp__postgres__*, mcp__sqlite__*, or mcp__mysql__* tools (whichever are present) to list schemas, inspect tables, and run read queries. For destructive writes (INSERT/UPDATE/DELETE/DROP), stop and confirm intent before executing. Return results as concise summaries with row counts and key values — do not dump entire tables verbatim.",
-                nativeTools: ["read_file", "grep", "bash"],
+                nativeTools: ["read_file", "grep", "bash", "inspect_media"],
                 mcpToolPatterns: ["mcp__postgres__*", "mcp__sqlite__*", "mcp__mysql__*"],
                 model: "inherit",
                 maxTurns: 20
@@ -331,7 +331,7 @@ enum SubagentTemplates {
                 description: "Reviews a diff or file for bugs, security issues, and clarity concerns.",
                 systemPrompt:
                     "You are a code reviewer. Read the specified diff or file(s), identify concrete issues (bugs, security vulnerabilities, unclear names, missing edge cases, poor error handling). For each finding: cite the file:line, describe the issue, and suggest a fix. Skip style nits unless they meaningfully hurt readability. End with a one-line summary verdict: 'LGTM', 'minor issues', or 'blocking issues'.",
-                nativeTools: ["read_file", "grep", "glob", "list_dir", "lsp", "bash"],
+                nativeTools: ["read_file", "grep", "glob", "list_dir", "lsp", "bash", "inspect_media"],
                 mcpToolPatterns: nil,
                 model: "inherit",
                 maxTurns: 15

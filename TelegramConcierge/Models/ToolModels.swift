@@ -697,6 +697,34 @@ enum AvailableTools {
         )
     )
 
+    static let inspectMedia = ToolDefinition(
+        function: FunctionDefinition(
+            name: "inspect_media",
+            description: "Text-only mode helper. Ask the configured vision preprocessor model a focused question about a specific image or PDF that appeared in the conversation or exists on disk. Use when the existing vision/OCR proxy is too broad, omits a detail, or you need to zoom into a region, chart, table, UI element, handwriting, diagram, or exact visible text. This tool is only available when the Text-only model setting is enabled.",
+            parameters: FunctionParameters(
+                properties: [
+                    "filename": ParameterProperty(
+                        type: "string",
+                        description: "Stored media filename from the conversation metadata, or an absolute path to an image/PDF. Examples: 'abc123.jpg', 'report.pdf', '/Users/me/Desktop/screenshot.png'."
+                    ),
+                    "question": ParameterProperty(
+                        type: "string",
+                        description: "The specific thing to inspect. Ask for the exact detail you need, e.g. 'What is the value in the bottom-right chart?' or 'Transcribe the small label above the blue button.'"
+                    ),
+                    "pages": ParameterProperty(
+                        type: "string",
+                        description: "Optional for PDFs. Page or range like '2' or '4-6'. Required when the PDF has more than 10 pages. Max 20 pages per call. Ignored for images."
+                    ),
+                    "region_hint": ParameterProperty(
+                        type: "string",
+                        description: "Optional natural-language location hint for images/PDF pages, e.g. 'top-right legend', 'bottom-left table', 'second screenshot panel'."
+                    )
+                ],
+                required: ["filename", "question"]
+            )
+        )
+    )
+
     static let writeFile = ToolDefinition(
         function: FunctionDefinition(
             name: "write_file",
@@ -1114,7 +1142,10 @@ enum AvailableTools {
         let subagentTools: [ToolDefinition] = subagentsEnabled
             ? [agentTool, subagentManage]
             : []
-        return filesystemTools + [manageReminders, viewConversationChunk, generateImage, sendDocumentToChat, shortcuts] + subagentTools + [skill]
+        let textOnlyTools: [ToolDefinition] = KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true"
+            ? [inspectMedia]
+            : []
+        return filesystemTools + textOnlyTools + [manageReminders, viewConversationChunk, generateImage, sendDocumentToChat, shortcuts] + subagentTools + [skill]
     }
 
     /// All available tools. `includeWebSearch` toggles whether the four web tools

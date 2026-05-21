@@ -66,6 +66,8 @@ struct SettingsView: View {
     // Text-only model settings
     @State private var textOnlyModelEnabled: Bool = false
     @State private var visionPreprocessorModel: String = ""
+    @State private var visionPreprocessorProvider: String = ""
+    @State private var visionPreprocessorReasoningEffort: String = ""
 
     // Collapsible sections
     @State private var isSpendLimitsExpanded: Bool = false
@@ -540,6 +542,26 @@ struct SettingsView: View {
                     Text("The multimodal model used to describe images and transcribe documents. Requires an OpenRouter API key. Default: \(KeychainHelper.defaultVisionPreprocessorModel)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    TextField("Vision Preferred Provider", text: $visionPreprocessorProvider)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("OpenRouter provider slug(s), comma-separated. Leave empty for default routing; Gemini OCR defaults to google-ai-studio.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Vision Reasoning Effort", selection: $visionPreprocessorReasoningEffort) {
+                        Text("Not Specified").tag("")
+                        Text("Minimal").tag("minimal")
+                        Text("Low").tag("low")
+                        Text("Medium").tag("medium")
+                        Text("High").tag("high")
+                    }
+                    .pickerStyle(.menu)
+
+                    Text("Controls thinking depth for supported OCR/vision models. Leave empty to preserve the current OCR request shape.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
             } header: {
@@ -566,6 +588,8 @@ struct SettingsView: View {
         .onChange(of: openRouterMonthlySpendLimit) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: textOnlyModelEnabled) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: visionPreprocessorModel) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: visionPreprocessorProvider) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: visionPreprocessorReasoningEffort) { _ in autoSave { saveOpenRouterSection() } }
     }
 
     // MARK: - Services Tab
@@ -1588,6 +1612,8 @@ struct SettingsView: View {
         refreshOpenRouterSpendCounters()
         textOnlyModelEnabled = KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true"
         visionPreprocessorModel = KeychainHelper.load(key: KeychainHelper.visionPreprocessorModelKey) ?? ""
+        visionPreprocessorProvider = KeychainHelper.load(key: KeychainHelper.visionPreprocessorProviderKey) ?? ""
+        visionPreprocessorReasoningEffort = KeychainHelper.load(key: KeychainHelper.visionPreprocessorReasoningEffortKey) ?? ""
         serperApiKey = KeychainHelper.load(key: KeychainHelper.serperApiKeyKey) ?? ""
         jinaApiKey = KeychainHelper.load(key: KeychainHelper.jinaApiKeyKey) ?? ""
         
@@ -1963,6 +1989,18 @@ struct SettingsView: View {
             try? KeychainHelper.save(key: KeychainHelper.visionPreprocessorModelKey, value: trimmedVisionModel)
         } else {
             try? KeychainHelper.delete(key: KeychainHelper.visionPreprocessorModelKey)
+        }
+        let trimmedVisionProvider = visionPreprocessorProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedVisionProvider.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.visionPreprocessorProviderKey, value: trimmedVisionProvider)
+            visionPreprocessorProvider = trimmedVisionProvider
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.visionPreprocessorProviderKey)
+        }
+        if !visionPreprocessorReasoningEffort.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.visionPreprocessorReasoningEffortKey, value: visionPreprocessorReasoningEffort)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.visionPreprocessorReasoningEffortKey)
         }
     }
 

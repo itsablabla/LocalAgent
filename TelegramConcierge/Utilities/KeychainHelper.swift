@@ -177,6 +177,8 @@ extension KeychainHelper {
     // Text-Only Model Settings
     static let textOnlyModelEnabledKey = "text_only_model_enabled"  // "true" or absent
     static let visionPreprocessorModelKey = "vision_preprocessor_model"
+    static let visionPreprocessorProviderKey = "vision_preprocessor_provider"
+    static let visionPreprocessorReasoningEffortKey = "vision_preprocessor_reasoning_effort"
     static let defaultVisionPreprocessorModel = "~google/gemini-flash-latest"
 
     // Archive Settings
