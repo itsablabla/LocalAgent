@@ -27,10 +27,10 @@ class ConversationManager: ObservableObject {
     /// Whether the current log belongs to an actively-running turn or the
     /// most recently completed one. /status uses this to label its output.
     private var currentTurnLogIsActive: Bool = false
-    /// Accumulates tool interactions for the active turn at the instance level
-    /// so they can be salvaged on cancellation (/stop). Reset at turn start,
-    /// appended inside generateResponseWithTools, read in the catch block.
-    private var activeTurnToolInteractions: [ToolInteraction] = []
+    /// Accumulates tool interactions for active user-triggered runs so they
+    /// can be salvaged on cancellation (/stop). Keying by run id prevents a
+    /// cancelled task from clearing or stealing a newer turn's partial work.
+    private var activeTurnToolInteractionsByRun: [UUID: [ToolInteraction]] = [:]
     private var pairedChatId: Int?
     
     // Pending media buffer - media is buffered until text triggers processing
@@ -855,10 +855,17 @@ class ConversationManager: ObservableObject {
         do {
             let turnStartDate = turnStartedAt
             try Task.checkCancellation()
-            let response = try await generateResponseWithTools(currentUserMessageId: userMessage.id, turnStartDate: turnStartDate)
+            let response = try await generateResponseWithTools(
+                currentUserMessageId: userMessage.id,
+                turnStartDate: turnStartDate,
+                salvageRunId: runId
+            )
             try Task.checkCancellation()
             
-            guard activeRunId == runId else { return }
+            guard activeRunId == runId else {
+                activeTurnToolInteractionsByRun.removeValue(forKey: runId)
+                return
+            }
             
             var didMutateHistory = false
 
@@ -916,6 +923,7 @@ class ConversationManager: ObservableObject {
             if didMutateHistory {
                 saveConversation()
             }
+            activeTurnToolInteractionsByRun.removeValue(forKey: runId)
 
             if let chatId = pairedChatId, !agentChoseSilence {
                 try Task.checkCancellation()
@@ -975,7 +983,7 @@ class ConversationManager: ObservableObject {
 
             // Salvage partial tool interactions from the interrupted turn so
             // the agent can see what it did on the next turn.
-            let partialInteractions = activeTurnToolInteractions
+            let partialInteractions = activeTurnToolInteractionsByRun.removeValue(forKey: runId) ?? []
             if !partialInteractions.isEmpty {
                 let assistantMessage = Message(
                     role: .assistant,
@@ -986,11 +994,11 @@ class ConversationManager: ObservableObject {
                 saveConversation()
                 print("[ConversationManager] Saved \(partialInteractions.count) partial tool interaction(s) from cancelled turn")
             }
-            activeTurnToolInteractions = []
 
             print("[ConversationManager] Active run cancelled")
         } catch {
             ToolExecutor.clearPendingToolOutputs()
+            activeTurnToolInteractionsByRun.removeValue(forKey: runId)
             DebugTelemetry.log(
                 .turnError,
                 summary: "turn failed",
@@ -1560,7 +1568,11 @@ class ConversationManager: ObservableObject {
     
     // MARK: - Tool-Aware Response Generation
     
-    private func generateResponseWithTools(currentUserMessageId: UUID, turnStartDate: Date) async throws -> ToolAwareResponse {
+    private func generateResponseWithTools(
+        currentUserMessageId: UUID,
+        turnStartDate: Date,
+        salvageRunId: UUID? = nil
+    ) async throws -> ToolAwareResponse {
         try Task.checkCancellation()
         defer {
             // File descriptions are now created at prune time from persisted
@@ -1727,12 +1739,26 @@ class ConversationManager: ObservableObject {
         let toolSpendLimitDailyUSD = spendLimitStatus.effectiveDailyLimitUSD
         let toolSpendLimitMonthlyUSD = spendLimitStatus.effectiveMonthlyLimitUSD
         var cumulativeToolSpendUSD: Double = 0
-        activeTurnToolInteractions = []
-        // Local alias — mutations are mirrored to activeTurnToolInteractions
-        // so that /stop can salvage partial work from the instance property.
+        var localToolInteractions: [ToolInteraction] = []
+        if let salvageRunId {
+            activeTurnToolInteractionsByRun[salvageRunId] = []
+        }
+        // Local alias. User-triggered active runs mirror mutations into the
+        // run-scoped salvage buffer; ambient/background turns stay local.
         var toolInteractions: [ToolInteraction] {
-            get { activeTurnToolInteractions }
-            set { activeTurnToolInteractions = newValue }
+            get {
+                if let salvageRunId {
+                    return activeTurnToolInteractionsByRun[salvageRunId] ?? []
+                }
+                return localToolInteractions
+            }
+            set {
+                if let salvageRunId {
+                    activeTurnToolInteractionsByRun[salvageRunId] = newValue
+                } else {
+                    localToolInteractions = newValue
+                }
+            }
         }
         var didHitToolSpendLimit = false
         var didHitContextLimit = false
@@ -3303,6 +3329,7 @@ class ConversationManager: ObservableObject {
                 if messagesForLLM[i].id == messages[i].id
                     && messagesForLLM[i].toolInteractions.isEmpty
                     && !messages[i].toolInteractions.isEmpty {
+                    messages[i].compactToolLog = messagesForLLM[i].compactToolLog
                     messages[i].toolInteractions = []
                     messages[i].measuredToolTokens = nil
                     messages[i].measuredTokens = messagesForLLM[i].measuredTokens
