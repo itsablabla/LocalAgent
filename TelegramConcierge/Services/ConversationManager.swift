@@ -27,6 +27,10 @@ class ConversationManager: ObservableObject {
     /// Whether the current log belongs to an actively-running turn or the
     /// most recently completed one. /status uses this to label its output.
     private var currentTurnLogIsActive: Bool = false
+    /// Accumulates tool interactions for the active turn at the instance level
+    /// so they can be salvaged on cancellation (/stop). Reset at turn start,
+    /// appended inside generateResponseWithTools, read in the catch block.
+    private var activeTurnToolInteractions: [ToolInteraction] = []
     private var pairedChatId: Int?
     
     // Pending media buffer - media is buffered until text triggers processing
@@ -968,6 +972,22 @@ class ConversationManager: ObservableObject {
             if activeRunId == runId {
                 statusMessage = "Cancelled"
             }
+
+            // Salvage partial tool interactions from the interrupted turn so
+            // the agent can see what it did on the next turn.
+            let partialInteractions = activeTurnToolInteractions
+            if !partialInteractions.isEmpty {
+                let assistantMessage = Message(
+                    role: .assistant,
+                    content: "⛔ Turn interrupted by /stop after \(partialInteractions.count) tool call\(partialInteractions.count == 1 ? "" : "s").",
+                    toolInteractions: partialInteractions
+                )
+                messages.append(assistantMessage)
+                saveConversation()
+                print("[ConversationManager] Saved \(partialInteractions.count) partial tool interaction(s) from cancelled turn")
+            }
+            activeTurnToolInteractions = []
+
             print("[ConversationManager] Active run cancelled")
         } catch {
             ToolExecutor.clearPendingToolOutputs()
@@ -1707,7 +1727,13 @@ class ConversationManager: ObservableObject {
         let toolSpendLimitDailyUSD = spendLimitStatus.effectiveDailyLimitUSD
         let toolSpendLimitMonthlyUSD = spendLimitStatus.effectiveMonthlyLimitUSD
         var cumulativeToolSpendUSD: Double = 0
-        var toolInteractions: [ToolInteraction] = []
+        activeTurnToolInteractions = []
+        // Local alias — mutations are mirrored to activeTurnToolInteractions
+        // so that /stop can salvage partial work from the instance property.
+        var toolInteractions: [ToolInteraction] {
+            get { activeTurnToolInteractions }
+            set { activeTurnToolInteractions = newValue }
+        }
         var didHitToolSpendLimit = false
         var didHitContextLimit = false
         var todaySpentUSD = spendLimitStatus.todaySpentUSD
