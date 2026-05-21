@@ -491,8 +491,12 @@ actor OpenRouterService {
     /// Native PDF input is only reliably supported by Gemini models on OpenRouter.
     /// Everything else (LM Studio, other OpenRouter models) gets PNG rendering.
     private var requiresPDFToImageConversion: Bool {
-        if isLMStudio { return true }
-        return !model.lowercased().contains("gemini")
+        requiresPDFToImageConversion(for: model, usingLMStudio: isLMStudio)
+    }
+
+    private func requiresPDFToImageConversion(for requestedModel: String, usingLMStudio: Bool) -> Bool {
+        if usingLMStudio { return true }
+        return !requestedModel.lowercased().contains("gemini")
     }
 
     /// Renders each page of a PDF document to a PNG image.
@@ -2312,15 +2316,50 @@ actor OpenRouterService {
         files: [(filename: String, data: Data, mimeType: String)],
         conversationContext: [Message] = []
     ) async throws -> [String: String] {
-        guard isLMStudio || !apiKey.isEmpty else {
-            throw OpenRouterError.notConfigured
-        }
-        
         guard !files.isEmpty else {
             return [:]
         }
+
+        let usingVisionPreprocessorForDescriptions = isTextOnlyModel
+        let usingLMStudioForDescriptions = isLMStudio && !usingVisionPreprocessorForDescriptions
+
+        guard usingLMStudioForDescriptions || !apiKey.isEmpty else {
+            throw OpenRouterError.notConfigured
+        }
+
+        // For LM Studio: use a separate description model/endpoint to avoid busting the main KV cache.
+        // For text-only mode: use the same vision preprocessor that produced the live OCR proxy,
+        // so durable breadcrumbs describe what the text-only model could not see directly.
+        let descriptionModel: String
+        let descriptionURL: String
+        if usingVisionPreprocessorForDescriptions {
+            descriptionModel = visionPreprocessorModel
+            descriptionURL = openRouterBaseURL
+        } else if usingLMStudioForDescriptions {
+            let descModel = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionModelKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            descriptionModel = descModel.isEmpty ? model : descModel
+
+            var descBase = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionBaseURLKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if descBase.isEmpty { descBase = baseURL } else {
+                while descBase.hasSuffix("/") { descBase.removeLast() }
+                if descBase.hasSuffix("/chat/completions") { /* already full */ }
+                else if !descBase.hasSuffix("/v1") { descBase += "/v1/chat/completions" }
+                else { descBase += "/chat/completions" }
+            }
+            descriptionURL = descBase
+        } else {
+            descriptionModel = model
+            descriptionURL = baseURL
+        }
+
+        let shouldRenderPDFsForDescription = requiresPDFToImageConversion(
+            for: descriptionModel,
+            usingLMStudio: usingLMStudioForDescriptions
+        )
         
-        print("[OpenRouterService] Generating descriptions for \(files.count) file(s) with \(conversationContext.count) context messages")
+        print("[OpenRouterService] Generating descriptions for \(files.count) file(s) with \(conversationContext.count) context messages using \(descriptionModel)")
         
         // Build conversation context as API messages (text only, anchored by caller)
         var apiMessages: [OpenRouterAPIMessage] = []
@@ -2365,7 +2404,7 @@ actor OpenRouterService {
             }
 
             let normalized = normalizeMimeType(file.mimeType)
-            if normalized == "application/pdf" && requiresPDFToImageConversion {
+            if normalized == "application/pdf" && shouldRenderPDFsForDescription {
                 let pageImages = renderPDFPagesToImages(file.data, filename: file.filename)
                 if !pageImages.isEmpty {
                     contentParts.append(contentsOf: pageImages)
@@ -2406,41 +2445,33 @@ actor OpenRouterService {
         
         // Add user message with files
         apiMessages.append(OpenRouterAPIMessage(role: "user", content: .parts(contentParts)))
-        
-        let usingLMStudioForDescriptions = isLMStudio
 
-        // For LM Studio: use a separate description model/endpoint to avoid busting the main KV cache
-        let descriptionModel: String
-        let descriptionURL: String
+        let descriptionProviderPreferences: ProviderPreferences?
         if usingLMStudioForDescriptions {
-            let descModel = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionModelKey)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            descriptionModel = descModel.isEmpty ? model : descModel
-
-            var descBase = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionBaseURLKey)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if descBase.isEmpty { descBase = baseURL } else {
-                while descBase.hasSuffix("/") { descBase.removeLast() }
-                if descBase.hasSuffix("/chat/completions") { /* already full */ }
-                else if !descBase.hasSuffix("/v1") { descBase += "/v1/chat/completions" }
-                else { descBase += "/chat/completions" }
-            }
-            descriptionURL = descBase
+            descriptionProviderPreferences = nil
+        } else if usingVisionPreprocessorForDescriptions {
+            descriptionProviderPreferences = providerPreferencesForVisionPreprocessor(descriptionModel)
         } else {
-            descriptionModel = model
-            descriptionURL = baseURL
+            descriptionProviderPreferences = providers(for: descriptionModel).map {
+                ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
+            }
+        }
+
+        let descriptionReasoningConfig: ReasoningConfig?
+        if usingLMStudioForDescriptions {
+            descriptionReasoningConfig = nil
+        } else if usingVisionPreprocessorForDescriptions {
+            descriptionReasoningConfig = visionPreprocessorReasoningConfig
+        } else {
+            descriptionReasoningConfig = reasoningEffort.map { ReasoningConfig(effort: $0) }
         }
 
         let request = OpenRouterRequest(
             model: descriptionModel,
             messages: apiMessages,
             tools: nil,
-            provider: usingLMStudioForDescriptions
-                ? nil
-                : providers(for: descriptionModel).map {
-                    ProviderPreferences(order: nil, only: $0, allow_fallbacks: false, sort: nil)
-                },
-            reasoning: usingLMStudioForDescriptions ? nil : reasoningEffort.map { ReasoningConfig(effort: $0) }
+            provider: descriptionProviderPreferences,
+            reasoning: descriptionReasoningConfig
         )
 
         // Make API call (uses separate endpoint for LM Studio to preserve main KV cache)
