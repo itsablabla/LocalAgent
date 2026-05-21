@@ -900,7 +900,9 @@ class ConversationManager: ObservableObject {
                 accessedProjectIds: response.accessedProjects ?? [],
                 subagentSessionEvents: response.subagentSessionEvents,
                 toolInteractions: response.toolInteractions,
-                compactToolLog: response.compactToolLog,
+                // Compact log is generated lazily at prune time, not stored
+                // upfront — the full interactions already carry the same info.
+                compactToolLog: nil,
                 measuredToolTokens: response.measuredToolTokens,
                 measuredTokens: response.measuredAssistantTokens
             )
@@ -2786,6 +2788,13 @@ class ConversationManager: ObservableObject {
             switch action {
             case .toolInteractions(let index, let savedTokens):
                 guard targetMessages.indices.contains(index) else { continue }
+                // Generate the compact log now — before clearing interactions —
+                // so the agent retains a lightweight summary of what tools ran.
+                if targetMessages[index].compactToolLog == nil {
+                    targetMessages[index].compactToolLog = buildCompactToolExecutionLog(
+                        from: targetMessages[index].toolInteractions
+                    )
+                }
                 targetMessages[index].toolInteractions = []
                 targetMessages[index].measuredToolTokens = nil
                 if let m = targetMessages[index].measuredTokens {
