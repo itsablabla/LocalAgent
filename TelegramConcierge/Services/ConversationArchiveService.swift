@@ -1506,7 +1506,15 @@ actor ConversationArchiveService {
     /// pruned active history: message text plus durable breadcrumbs, never full
     /// tool replay payloads or inline media references.
     private func sanitizeMessagesForArchive(_ messages: [Message]) -> [Message] {
-        messages.map(sanitizeMessageForArchive)
+        messages
+            .filter { !isStandaloneToolRunLog($0) }
+            .map(sanitizeMessageForArchive)
+    }
+
+    private static let toolRunLogPrefix = "[TOOL RUN LOG - compact]"
+
+    private func isStandaloneToolRunLog(_ message: Message) -> Bool {
+        message.role == .assistant && message.content.hasPrefix(Self.toolRunLogPrefix)
     }
 
     private func sanitizeExistingArchiveFiles() {
@@ -1610,7 +1618,7 @@ actor ConversationArchiveService {
             accessedProjectIds: message.accessedProjectIds,
             subagentSessionEvents: message.subagentSessionEvents,
             toolInteractions: [],
-            compactToolLog: message.compactToolLog,
+            compactToolLog: nil,
             mediaPruned: message.mediaPruned || message.mediaFileCount > 0,
             measuredToolTokens: nil,
             measuredTokens: nil,
