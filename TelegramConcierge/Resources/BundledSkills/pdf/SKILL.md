@@ -45,14 +45,27 @@ Keep scratch artifacts in a task-scoped folder such as `tmp/pdfs/<task-slug>/` o
 
 | Type | Examples | Layout rule | Density | Apply rules in |
 | --- | --- | --- | --- | --- |
-| **Presentation / deck** | Pitch, value props, summary slides | **Vary layouts** across consecutive pages; never repeat the same pattern | 150-200 wds/page min | `Presentation` section |
+| **Presentation / deck** | Pitch, value props, summary slides | Vary layouts across consecutive pages by default; avoid repeated patterns unless a reference/template requires consistency | 150-200 wds/page target | `Presentation` section |
 | **Essay / paper / article** | Research paper, op-ed, analysis | **Same layout every page** — single column, consistent rhythm | 400+ wds/page typical | `Essay` section |
 | **Long-form report** | 20+ pages, structured, with TOC | Same as essay + chapters, TOC, running header | 300+ wds/page | `Report` section |
 | **Transactional** | Invoice, receipt, statement, quote | Tabular, precise alignment, minimal decoration | Tables drive it | `Transactional` section |
 | **Letter / memo** | Formal correspondence, cover letter | Single-page block-format template | Correspondence | `Letter` section |
-| **Brochure / marketing** | Fold brochure, one-sheet, flyer | Visual-heavy, brand-driven | Designer-intensive | Out of scope — defer |
+| **Brochure / marketing** | Fold brochure, one-sheet, flyer | Visual-heavy, brand-driven | Designer-intensive | Attempt only for simple one-sheets or when the user provides brand/reference direction |
 
 Don't conflate types. A "report" with card grids and pullquotes is wrong; a pitch deck with 6 dense prose pages is wrong.
+
+### Rules and exceptions
+
+The layout rules below are strong defaults, not universal law. They prevent common low-quality agent output, but the best PDF is the one that fits the user's intent and survives visual QA.
+
+You may override a default when at least one of these is true:
+
+- The user explicitly asks for a format or layout that conflicts with the default.
+- A supplied reference/template clearly uses that layout and the user wants it followed.
+- The content type genuinely needs the exception, such as a compact newsletter, reference appendix, form, catalog, academic handout, or brand-led one-sheet.
+- The rendered pages prove the exception is cleaner, more readable, and more complete than the default.
+
+When taking an exception, keep it deliberate and limited. Do not use an exception as permission to fall back into generic card grids, cramped columns, decorative clutter, or clipped content.
 
 ## Shared foundation
 
@@ -134,39 +147,39 @@ Only iterate on objective defects. Stop after 3 QA loops and tell the user what 
 
 ## Presentation
 
-Pitch decks, feature summaries, value props. **Vary layouts on consecutive pages.** Never repeat the same pattern. Do NOT default to a square card grid on every page — that's the "lazy deck" failure mode.
+Pitch decks, feature summaries, value props. Vary layouts on consecutive pages by default. Avoid repeating the same pattern unless the deck is following a template, reference, or intentionally systematic operating-review format. Do not default to a square card grid on every page — that's the "lazy deck" failure mode.
 
 ### Content volume rule
 
-**Before choosing a visual pattern, check how much content you actually have for each element on the page.** If individual items (cards, layers, panes) contain less than ~100 words each, do NOT use a visual pattern — write it as flowing prose with **bold inline headings** instead. Visual patterns (Stack, Split, Pillars) exist to organize substantial content, not to dress up thin bullet points as cards.
+**Before choosing a visual pattern, check how much content you actually have for each element on the page.** If individual items (cards, layers, panes) contain less than ~100 words each, the default is flowing prose with **bold inline headings** rather than a visual pattern. Visual patterns (Stack, Split, Pillars) exist to organize substantial content, not to dress up thin bullet points as cards.
 
 - **Stack with thin items** (each item < 100 words): use flowing prose instead. Write each point as a bold heading + paragraph in a single running column.
 - **Split with thin content**: only use when BOTH sides have enough to fill their pane. If the text side is under ~150 words, merge everything into a single flowing column. An image floating within prose is better than a half-empty split layout.
-- **Pillars/cards**: only when each card has a title + 80+ words of substance. Three title-and-one-liner cards is a bullet list pretending to be a layout — write it as prose.
+- **Pillars/cards**: use when each card has enough substance to compare or scan. Three title-and-one-liner cards is usually a bullet list pretending to be a layout — write it as prose unless a reference/template calls for cards.
 
 **When in doubt, prefer dense running text over visual patterns.** A well-written paragraph is always better than a half-empty card grid.
 
 ### No text-only two-column layouts
 
-**Never split pure text into two columns on the same page.** Two-column text (CSS `column-count: 2` or side-by-side text blocks) looks fragmented and is hard to read. Always use a single full-width column for prose.
+Default to a single full-width column for prose. Two-column pure text often looks fragmented and is hard to read in agent-generated PDFs.
 
-Two-column layouts are ONLY acceptable when one column is an image/diagram and the other is text (the Split pattern). If both sides would be text, use a single column instead.
+Use two-column pure text only when the format genuinely benefits from it: newsletters, dense handouts, indexes, glossaries, compact appendices, or a supplied reference/template. When both columns would be normal narrative prose, use a single column instead. Two-column layouts remain a good fit when one column is an image/diagram and the other is text (the Split pattern).
 
 ### Named layout patterns
 
 | Pattern | Best for | Key features |
 | --- | --- | --- |
-| **Manifesto** | Philosophy, vision, intros, narrative | Single-column running prose + large italic pull-quote with left accent bar. **Never two-column text.** |
-| **Stack** | Architecture layers, process steps, roadmaps | Vertical rows, bold uppercase tag left + description right. **Only when each item has 100+ words; otherwise use flowing prose.** |
-| **Split** | Feature showcases, comparisons | 40/60 or 50/50 horizontal: **image/diagram one side, prose/list the other.** Never text on both sides. **Only when both sides fill their pane; otherwise single column.** |
-| **Pillars** | Value props, capabilities | Grid of cards — **3-column or asymmetric**, colored top-border accent. Never square grids. **Only when each card has 80+ words of substance.** |
+| **Manifesto** | Philosophy, vision, intros, narrative | Single-column running prose + large italic pull-quote with left accent bar. Avoid two-column text unless the user/reference calls for an editorial format. |
+| **Stack** | Architecture layers, process steps, roadmaps | Vertical rows, bold uppercase tag left + description right. Best when each item has enough substance; otherwise use flowing prose. |
+| **Split** | Feature showcases, comparisons | 40/60 or 50/50 horizontal: image/diagram one side, prose/list the other. Avoid text-vs-text splits unless comparison is the point and both sides fill their pane. |
+| **Pillars** | Value props, capabilities | Grid of cards — usually 3-column or asymmetric, colored top-border accent. Avoid square grids unless following a template/reference. Best when each card has enough substance to scan. |
 | **Hero** | A concept better shown than told | Full-width image/diagram + caption + short context |
 | **Quote** | Section transitions, memorable statements | Large typographic treatment (28-40pt italic), minimal surround |
 | **Data** | Technical depth, metrics | Table or chart carries the page, annotation supports |
 
-**Plan the sequence before rendering.** Example 5-page deck: cover → Manifesto → Stack → Split → Hero → Quote. Every page different from its neighbor.
+**Plan the sequence before rendering.** Example 5-page deck: cover → Manifesto → Stack → Split → Hero → Quote. Adjacent pages should usually differ in rhythm unless consistency is intentional.
 
-**Density floor**: 150-200 words per content page. Below that, the page reads as a headline, not a section. Add an "intro bridge" (2-3 sentence paragraph) under every H2 for context.
+**Density target**: 150-200 words per content page. Below that, the page often reads as a headline, not a section. Add an "intro bridge" (2-3 sentence paragraph) under every H2 for context, unless the page is intentionally visual, a divider, or a quote page.
 
 **Cover / divider pages** (intentionally sparse): use flex distribution so content doesn't bunch at the top.
 ```css
@@ -176,7 +189,7 @@ Two-column layouts are ONLY acceptable when one column is an image/diagram and t
 ### CSS snippets for patterns
 
 ```css
-/* .manifesto-cols: removed — never use two-column text layouts */
+/* .manifesto-cols intentionally omitted; use only for editorial/reference-driven exceptions */
 .pull-quote { font-size: 20pt; font-style: italic; color: #0b57d0; border-left: 4pt solid #0b57d0; padding: 0.8cm 1cm; margin: 1.5cm 0; background: #f0f7ff; }
 .stack-layer { display: grid; grid-template-columns: 180px 1fr; gap: 1cm; padding: 0.8cm; border: 1pt solid #eee; margin-bottom: 0.5cm; border-radius: 4pt; page-break-inside: avoid; }
 .layer-label { font-family: 'Inter', sans-serif; font-weight: 800; color: #0b57d0; text-transform: uppercase; font-size: 9pt; letter-spacing: 0.1em; }
@@ -190,9 +203,9 @@ Two-column layouts are ONLY acceptable when one column is an image/diagram and t
 
 ## Essay / paper / article
 
-Research papers, op-eds, analyses. **Consistency IS the goal**, not variety. Every page uses the same single-column layout, same typography, same rhythm. Readers shouldn't notice layout — it should disappear under the prose.
+Research papers, op-eds, analyses. Consistency is the default goal, not variety. Most pages use the same single-column layout, same typography, same rhythm. Readers shouldn't notice layout — it should disappear under the prose.
 
-**Do NOT** use card grids, pull-quotes, decorative accents, or column variety. Do NOT introduce visual surprises between pages.
+Avoid card grids, pull-quotes, decorative accents, or column variety in essays. Use an exception only for a legitimate editorial/article format, a supplied reference, or a figure/callout that materially improves comprehension.
 
 ### Structure
 - Page 1: title + author/affiliation + date at top, then body starts ~1/3 down the page
@@ -263,11 +276,13 @@ Formal single-page correspondence: cover letter, business letter, internal memo.
 - Closing ("Sincerely,"), ~1 line below last paragraph
 - Signature space (3 lines), then printed name + title
 
-Margins 2.5-3cm. No page number on a single page. No decorative elements.
+Margins 2.5-3cm. Usually no page number on a single page. Keep decoration minimal unless the user supplies letterhead or brand direction.
 
 ## Brochure / marketing
 
-Out of scope. Brochures depend on brand identity, imagery decisions, and visual craftsmanship that an LLM producing HTML+CSS can't deliver to a professional standard. Ask the user to engage a designer, or offer a pitch deck (Presentation type) as an adjacent deliverable.
+Treat brochures, flyers, one-sheets, and marketing collateral as high-risk rather than impossible. They depend on brand identity, imagery decisions, and visual craftsmanship.
+
+Attempt them when the user provides brand/reference direction, the format is a simple one-page flyer/one-sheet, or a polished-enough draft is useful. Keep expectations grounded: use real or provided imagery, avoid generic stock-like filler, and verify the rendered page carefully. For complex folded brochures or brand-critical collateral, ask for brand assets/reference examples or offer a pitch deck (Presentation type) as an adjacent deliverable.
 
 ## Common bugs
 
@@ -282,10 +297,10 @@ Out of scope. Brochures depend on brand identity, imagery decisions, and visual 
 | Every paragraph indents | Parent stylesheet's `text-indent` | `p { text-indent: 0; }` explicitly |
 | Cover content bunched at top | Missing flex on page container | flex-column + `justify-content: space-between` on a 24cm min-height container |
 | Content page half-empty | Under-written section | Merge pages, expand prose, add intro bridge under H2, or enlarge a figure |
-| Every page looks identical (presentation) | One layout pattern applied to all | Alternate Manifesto / Stack / Split / Pillars / Hero / Quote / Data |
+| Every page looks unintentionally identical (presentation) | One layout pattern applied to all | Alternate Manifesto / Stack / Split / Pillars / Hero / Quote / Data, unless consistency follows a template/reference |
 | Stack/Pillars page looks like a bullet list | Items have <100 words each, dressed up as cards | Rewrite as flowing prose with bold inline headings |
 | Split page half-empty | Text pane has <150 words, bottom of page is whitespace | Switch to single-column flowing text; float images inline |
-| Two columns of text side by side | Text split into columns without an image | Never use `column-count: 2` or text-vs-text split; use full-width single column |
+| Two columns of text side by side feel fragmented | Text split into columns without a real reason | Use full-width single column, unless it is a newsletter, handout, appendix, index, or reference/template-driven exception |
 | Essay has pullquotes or card grids | Misclassified as presentation | Strip decorative elements; essays want consistency |
 | Invoice columns misaligned | Mixed numeric + text columns, no tabular figures | `font-variant-numeric: tabular-nums` on numeric cells |
 | Tables cut at page breaks | No `page-break-inside: avoid` on rows | Add to `tr` |
@@ -304,4 +319,4 @@ Out of scope. Brochures depend on brand identity, imagery decisions, and visual 
 
 ## Stopping criterion
 
-The document looks right for its TYPE. A presentation varies cleanly across pages; an essay reads as continuous prose; an invoice aligns precisely; a letter follows block format. Nothing clipped, no orphan headings, no half-empty content pages. Ship.
+The document looks right for its type and intent. A presentation usually varies cleanly across pages; an essay usually reads as continuous prose; an invoice aligns precisely; a letter follows block format. Any exception is intentional, limited, and validated visually. Nothing clipped, no orphan headings, no accidental half-empty content pages. Ship.
