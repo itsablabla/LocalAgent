@@ -42,13 +42,34 @@ extension ToolExecutor {
 
     func executeEditFile(_ call: ToolCall) async -> String {
         let args = parseArgs(call.function.arguments)
-        guard let path = args.string("path"),
-              let oldString = args.string("old_string"),
-              let newString = args.string("new_string") else {
-            return "{\"error\": \"edit_file requires 'path', 'old_string', and 'new_string'\"}"
+        guard let path = args.string("path") else {
+            return "{\"error\": \"edit_file requires 'path'\"}"
         }
         let replaceAll = args.bool("replace_all") ?? false
-        let result = await FilesystemTools.shared.editFile(path: path, oldString: oldString, newString: newString, replaceAll: replaceAll)
+
+        // Support two input formats:
+        // 1. Batched: { path, edits: [{old_string, new_string}, ...] }
+        // 2. Single (backward compat): { path, old_string, new_string }
+        var editPairs: [FilesystemTools.EditPair] = []
+
+        if let editsArray = args.objectArray("edits") {
+            for (i, editDict) in editsArray.enumerated() {
+                guard let old = editDict["old_string"] as? String, !old.isEmpty else {
+                    return "{\"error\": \"edits[\(i)] requires 'old_string'\"}"
+                }
+                guard let new = editDict["new_string"] as? String else {
+                    return "{\"error\": \"edits[\(i)] requires 'new_string'\"}"
+                }
+                editPairs.append(FilesystemTools.EditPair(oldString: old, newString: new))
+            }
+        } else if let oldString = args.string("old_string"),
+                  let newString = args.string("new_string") {
+            editPairs.append(FilesystemTools.EditPair(oldString: oldString, newString: newString))
+        } else {
+            return "{\"error\": \"edit_file requires either 'edits' array or 'old_string'+'new_string'\"}"
+        }
+
+        let result = await FilesystemTools.shared.editFile(path: path, edits: editPairs, replaceAll: replaceAll)
         return result.content
     }
 
@@ -348,6 +369,18 @@ extension ToolExecutor {
                let data = s.data(using: .utf8),
                let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
                !dict.isEmpty { return dict }
+            return nil
+        }
+
+        /// Extract an array of dictionaries (for nested object arrays like `edits`).
+        /// Handles both native arrays and JSON-string-encoded arrays (some models emit strings).
+        func objectArray(_ key: String) -> [[String: Any]]? {
+            if let arr = raw[key] as? [[String: Any]], !arr.isEmpty { return arr }
+            // Models sometimes emit the array as a JSON string.
+            if let s = raw[key] as? String,
+               let data = s.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               !arr.isEmpty { return arr }
             return nil
         }
 

@@ -728,7 +728,7 @@ enum AvailableTools {
     static let writeFile = ToolDefinition(
         function: FunctionDefinition(
             name: "write_file",
-            description: "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Prefer apply_patch for modifying existing code. Use this tool only to create new files or for complete rewrites.\n- Parent directories are created automatically.\n- NEVER create documentation files (*.md) or README files unless explicitly requested by the user.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and a 'diagnostics' array (errors/warnings from sourcekit-lsp / typescript-language-server / pylsp / gopls / rust-analyzer) — inspect both; always re-read and fix before continuing if any diagnostic has severity='error'.",
+            description: "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Prefer apply_patch for modifying existing code. Use this tool only to create new files or for complete rewrites.\n- Parent directories are created automatically.\n- NEVER create documentation files (*.md) or README files unless explicitly requested by the user.\n- The result includes a 'diff' field (unified-diff preview) and a 'diagnostics' array (errors/warnings from sourcekit-lsp / typescript-language-server / pylsp / gopls / rust-analyzer) — inspect both; always re-read and fix before continuing if any diagnostic has severity='error'.",
             parameters: FunctionParameters(
                 properties: [
                     "path": ParameterProperty(type: "string", description: "Absolute path to write."),
@@ -743,15 +743,28 @@ enum AvailableTools {
     static let editFile = ToolDefinition(
         function: FunctionDefinition(
             name: "edit_file",
-            description: "Performs string replacements in files. Prefer apply_patch for code edits; use this for tiny one-location replacements or as a fallback after apply_patch fails.\n\nUsage:\n- You must use the read_file tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.\n- When editing text from read_file output, preserve the exact indentation (tabs/spaces) after the display-only line prefix. The line prefix looks like '42→' or ' 42→'. Everything after the arrow is actual file content to match. Never include any part of the line number prefix in old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and diagnostics. If 'match_strategy_warning' appears, inspect the diff carefully and prefer apply_patch next time.",
+            description: "Performs string replacements in files. Prefer apply_patch for code edits; use this for tiny one-location replacements or as a fallback after apply_patch fails.\n\nUsage:\n- You must use the read_file tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.\n- When editing text from read_file output, preserve the exact indentation (tabs/spaces) after the display-only line prefix. The line prefix looks like '42→' or ' 42→'. Everything after the arrow is actual file content to match. Never include any part of the line number prefix in old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.\n- Use replace_all for replacing and renaming strings across the file.\n- Supports batched edits: pass an 'edits' array of {old_string, new_string} pairs to make multiple replacements in one atomic call. All edits are matched against the ORIGINAL file content (not incrementally), and overlapping edits are rejected. If any edit fails, the file is untouched.\n- You can also pass top-level old_string/new_string for a single edit (backward compatible).\n- The result includes a full unified diff and LSP diagnostics. If 'match_strategy_warning' appears, inspect the diff carefully.",
             parameters: FunctionParameters(
                 properties: [
                     "path": ParameterProperty(type: "string", description: "Absolute path to the file."),
-                    "old_string": ParameterProperty(type: "string", description: "Exact substring to find. Include enough surrounding context to make the match unique. Must match whitespace and indentation exactly."),
-                    "new_string": ParameterProperty(type: "string", description: "Replacement text. Must differ from old_string."),
-                    "replace_all": ParameterProperty(type: "boolean", description: "Optional. When true, replaces every occurrence of old_string; otherwise old_string must be unique.")
+                    "old_string": ParameterProperty(type: "string", description: "For single-edit mode. Exact substring to find. Include enough surrounding context to make the match unique."),
+                    "new_string": ParameterProperty(type: "string", description: "For single-edit mode. Replacement text. Must differ from old_string."),
+                    "edits": ParameterProperty(
+                        type: "array",
+                        description: "For multi-edit mode. Array of replacements applied atomically. Each edit is matched against the original file, not after earlier edits. Do not include overlapping edits — merge nearby changes into one edit instead.",
+                        items: ArrayItemsSchema(
+                            type: "object",
+                            description: "A single replacement pair.",
+                            properties: [
+                                "old_string": ParameterProperty(type: "string", description: "Exact substring to find."),
+                                "new_string": ParameterProperty(type: "string", description: "Replacement text.")
+                            ],
+                            required: ["old_string", "new_string"]
+                        )
+                    ),
+                    "replace_all": ParameterProperty(type: "boolean", description: "Optional. When true, replaces every occurrence of each old_string; otherwise each must be unique.")
                 ],
-                required: ["path", "old_string", "new_string"]
+                required: ["path"]
             )
         )
     )
@@ -759,7 +772,7 @@ enum AvailableTools {
     static let applyPatch = ToolDefinition(
         function: FunctionDefinition(
             name: "apply_patch",
-            description: "Apply a multi-file Codex-style patch atomically. This is the preferred tool for code edits, especially coordinated edits across one or more files. All operations are validated against current file contents before any disk write; on failure, nothing is modified.\n\nEnvelope format:\n*** Begin Patch\n*** Update File: /abs/path\n@@ optional anchor (e.g. a function signature)\n context line\n-removed line\n+added line\n*** Add File: /abs/path\n+new file line 1\n+new file line 2\n*** Delete File: /abs/path\n*** End Patch\n\nFor Update with rename, add '*** Move to: /new/abs/path' directly after the Update File header.\n\nThe result includes 'diffs_by_file' (unified-diff preview per path, capped) and 'diagnostics_by_file' (per-path map with the same 'diagnostics' / 'diagnostics_skipped' / 'diagnostics_summary' shape returned by write_file). Inspect both — re-read and fix any file with severity='error' before continuing.",
+            description: "Apply a multi-file Codex-style patch atomically. This is the preferred tool for code edits, especially coordinated edits across one or more files. All operations are validated against current file contents before any disk write; on failure, nothing is modified.\n\nEnvelope format:\n*** Begin Patch\n*** Update File: /abs/path\n@@ optional anchor (e.g. a function signature)\n context line\n-removed line\n+added line\n*** Add File: /abs/path\n+new file line 1\n+new file line 2\n*** Delete File: /abs/path\n*** End Patch\n\nFor Update with rename, add '*** Move to: /new/abs/path' directly after the Update File header.\n\nThe result includes 'diffs_by_file' (unified-diff preview per path) and 'diagnostics_by_file' (per-path map with the same 'diagnostics' / 'diagnostics_skipped' / 'diagnostics_summary' shape returned by write_file). Inspect both — re-read and fix any file with severity='error' before continuing.",
             parameters: FunctionParameters(
                 properties: [
                     "patch_text": ParameterProperty(type: "string", description: "The full patch text including the Begin/End Patch markers.")

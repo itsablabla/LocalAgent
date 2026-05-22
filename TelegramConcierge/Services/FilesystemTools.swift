@@ -279,15 +279,34 @@ actor FilesystemTools {
 
     // MARK: - edit_file
 
-    /// Surgical find/replace. `replaceAll` required when `oldString` occurs >1 times.
-    /// Falls back through 3 match strategies: literal → line-trimmed → whitespace-normalized.
+    /// Single-edit convenience wrapper — delegates to the batch method.
     func editFile(path rawPath: String, oldString: String, newString: String, replaceAll: Bool = false) async -> OpResult {
+        return await editFile(path: rawPath, edits: [EditPair(oldString: oldString, newString: newString)], replaceAll: replaceAll)
+    }
+
+    /// A single old/new replacement pair.
+    struct EditPair {
+        let oldString: String
+        let newString: String
+    }
+
+    /// Batch edit: apply one or more find/replace pairs atomically.
+    /// All edits are matched against the ORIGINAL file content (not incrementally).
+    /// If any edit fails validation, the file is untouched.
+    /// Falls back through 3 match strategies per edit: literal → line-trimmed → whitespace-normalized.
+    func editFile(path rawPath: String, edits: [EditPair], replaceAll: Bool = false) async -> OpResult {
         let path = Self.normalizePath(rawPath)
         guard Self.isAbsolute(path) else {
             return OpResult(content: jsonError("path must be absolute: \(rawPath)"))
         }
-        if oldString == newString {
-            return OpResult(content: jsonError("old_string and new_string are identical — nothing to do"))
+        guard !edits.isEmpty else {
+            return OpResult(content: jsonError("edit_file requires at least one edit"))
+        }
+        for (i, edit) in edits.enumerated() {
+            if edit.oldString == edit.newString {
+                let label = edits.count > 1 ? "edits[\(i)]: " : ""
+                return OpResult(content: jsonError("\(label)old_string and new_string are identical — nothing to do"))
+            }
         }
         guard FileManager.default.fileExists(atPath: path) else {
             return OpResult(content: jsonError("file not found: \(path). Use write_file to create it."))
@@ -302,41 +321,108 @@ actor FilesystemTools {
             return OpResult(content: jsonError("file \(path) is not valid UTF-8 text"))
         }
 
-        let result = EditStrategies.apply(
-            source: original,
-            oldString: oldString,
-            newString: newString,
-            replaceAll: replaceAll
-        )
+        // --- Phase 1: Match all edits against the ORIGINAL content ---
+        struct MatchedEdit {
+            let index: Int          // position in the edits array
+            let matchStart: Int     // line index in source where old_string starts
+            let matchLength: Int    // number of source lines consumed
+            let newString: String   // replacement text
+            let strategy: String    // which tier matched
+        }
 
-        switch result {
-        case .noMatch:
-            return OpResult(content: jsonError("old_string not found in \(path). It must match exactly including whitespace and indentation."))
-        case .multipleMatches(let count):
-            return OpResult(content: jsonError("old_string occurs \(count) times in \(path). Provide more surrounding context to make it unique, or pass replace_all=true."))
-        case .success(let updated, let replacements, let strategy):
-            do {
-                try updated.data(using: .utf8)?.write(to: URL(fileURLWithPath: path), options: .atomic)
-                await FileTimeTracker.shared.recordRead(path: path)
-                await FilesLedger.shared.record(path: path, origin: .edited, description: nil)
-                var result: [String: Any] = [
-                    "success": true,
-                    "path": path,
-                    "replacements": replacements,
-                    "strategy": strategy,
-                    "bytes_written": updated.utf8.count
-                ]
-                if let diff = DiffUtil.unifiedDiff(old: original, new: updated, path: path) {
-                    result["diff"] = diff
+        let srcLines = original.components(separatedBy: "\n")
+        var matchedEdits: [MatchedEdit] = []
+        var usedNonLiteral = false
+
+        for (i, edit) in edits.enumerated() {
+            let label = edits.count > 1 ? "edits[\(i)]: " : ""
+
+            // Try matching this edit against the original content
+            let result = EditStrategies.apply(
+                source: original,
+                oldString: edit.oldString,
+                newString: edit.newString,
+                replaceAll: replaceAll
+            )
+
+            switch result {
+            case .noMatch:
+                return OpResult(content: jsonError("\(label)old_string not found in \(path). It must match exactly including whitespace and indentation."))
+            case .multipleMatches(let count):
+                return OpResult(content: jsonError("\(label)old_string occurs \(count) times in \(path). Provide more surrounding context to make it unique, or pass replace_all=true."))
+            case .success(_, _, let strategy):
+                if strategy != "literal" { usedNonLiteral = true }
+
+                // Find the line position of the match for overlap detection.
+                // Re-run the match to get the position (using the strategy that worked).
+                let matchInfo = EditStrategies.findMatch(
+                    source: original,
+                    sourceLines: srcLines,
+                    oldString: edit.oldString,
+                    replaceAll: replaceAll
+                )
+                guard let info = matchInfo else {
+                    return OpResult(content: jsonError("\(label)internal error: match lost during position lookup"))
                 }
-                if strategy != "literal" {
-                    result["match_strategy_warning"] = "Applied using \(strategy) matching. Inspect the diff carefully and prefer apply_patch for future code edits."
+
+                for pos in info.positions {
+                    matchedEdits.append(MatchedEdit(
+                        index: i,
+                        matchStart: pos.lineStart,
+                        matchLength: pos.lineCount,
+                        newString: edit.newString,
+                        strategy: strategy
+                    ))
                 }
-                await LSPDiagnosticsReporter.attach(to: &result, path: path, updatedText: updated)
-                return OpResult(content: jsonString(result))
-            } catch {
-                return OpResult(content: jsonError("failed to write \(path): \(error.localizedDescription)"))
             }
+        }
+
+        // --- Phase 2: Check for overlaps (only relevant for multi-edit) ---
+        if edits.count > 1 {
+            let sorted = matchedEdits.sorted { $0.matchStart < $1.matchStart }
+            for j in 1..<sorted.count {
+                let prev = sorted[j - 1]
+                let curr = sorted[j]
+                if prev.matchStart + prev.matchLength > curr.matchStart {
+                    return OpResult(content: jsonError("edits[\(prev.index)] and edits[\(curr.index)] overlap. Merge them into one edit or target disjoint regions."))
+                }
+            }
+        }
+
+        // --- Phase 3: Apply all edits (last-to-first to keep positions stable) ---
+        var working = srcLines
+        let sortedReversed = matchedEdits.sorted { $0.matchStart > $1.matchStart }
+        for m in sortedReversed {
+            let newLines = m.newString.components(separatedBy: "\n")
+            working.replaceSubrange(m.matchStart..<(m.matchStart + m.matchLength), with: newLines)
+        }
+
+        let updated = working.joined(separator: "\n")
+        if updated == original {
+            return OpResult(content: jsonError("No changes made. The replacement produced identical content."))
+        }
+
+        // --- Phase 4: Write and report ---
+        do {
+            try updated.data(using: .utf8)?.write(to: URL(fileURLWithPath: path), options: .atomic)
+            await FileTimeTracker.shared.recordRead(path: path)
+            await FilesLedger.shared.record(path: path, origin: .edited, description: nil)
+            var result: [String: Any] = [
+                "success": true,
+                "path": path,
+                "edits_applied": matchedEdits.count,
+                "bytes_written": updated.utf8.count
+            ]
+            if let diff = DiffUtil.unifiedDiff(old: original, new: updated, path: path) {
+                result["diff"] = diff
+            }
+            if usedNonLiteral {
+                result["match_strategy_warning"] = "One or more edits applied using fuzzy matching. Inspect the diff carefully."
+            }
+            await LSPDiagnosticsReporter.attach(to: &result, path: path, updatedText: updated)
+            return OpResult(content: jsonString(result))
+        } catch {
+            return OpResult(content: jsonError("failed to write \(path): \(error.localizedDescription)"))
         }
     }
 
@@ -559,6 +645,93 @@ enum EditStrategies {
         case noMatch
         case multipleMatches(count: Int)
         case success(updated: String, replacements: Int, strategy: String)
+    }
+
+    /// Position of a match within the source lines.
+    struct MatchPosition {
+        let lineStart: Int
+        let lineCount: Int
+    }
+
+    /// Result of a position-aware match search.
+    struct MatchInfo {
+        let positions: [MatchPosition]
+    }
+
+    /// Find the line positions of oldString in source, trying all three strategies.
+    /// Used after `apply()` confirms a match exists, to get positional info for overlap detection.
+    static func findMatch(source: String, sourceLines: [String], oldString: String, replaceAll: Bool) -> MatchInfo? {
+        let oldLines = oldString.components(separatedBy: "\n")
+
+        // Strategy 1: Literal — find the substring, then map byte offset to line index.
+        let indices = indicesOf(needle: oldString, inHaystack: source)
+        if !indices.isEmpty {
+            var positions: [MatchPosition] = []
+            for idx in indices {
+                let prefixEnd = source[source.startIndex..<idx]
+                let lineStart = prefixEnd.components(separatedBy: "\n").count - 1
+                positions.append(MatchPosition(lineStart: lineStart, lineCount: oldLines.count))
+                if !replaceAll { break }
+            }
+            return MatchInfo(positions: positions)
+        }
+
+        // Strategy 2: Line-trimmed
+        if let positions = findLineTrimmed(sourceLines: sourceLines, oldString: oldString, replaceAll: replaceAll) {
+            return MatchInfo(positions: positions)
+        }
+
+        // Strategy 3: Whitespace-normalized
+        if let positions = findWhitespaceNormalized(sourceLines: sourceLines, oldString: oldString, replaceAll: replaceAll) {
+            return MatchInfo(positions: positions)
+        }
+
+        return nil
+    }
+
+    private static func findLineTrimmed(sourceLines: [String], oldString: String, replaceAll: Bool) -> [MatchPosition]? {
+        let oldTrimmed = oldString
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
+            .joined(separator: "\n")
+        let oldLines = oldTrimmed.components(separatedBy: "\n")
+        guard oldLines.count > 0, oldLines.count <= sourceLines.count else { return nil }
+
+        var positions: [MatchPosition] = []
+        for start in 0...(sourceLines.count - oldLines.count) {
+            var hit = true
+            for i in 0..<oldLines.count {
+                let srcLine = sourceLines[start + i].trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+                if srcLine != oldLines[i] { hit = false; break }
+            }
+            if hit {
+                positions.append(MatchPosition(lineStart: start, lineCount: oldLines.count))
+                if !replaceAll { break }
+            }
+        }
+        return positions.isEmpty ? nil : positions
+    }
+
+    private static func findWhitespaceNormalized(sourceLines: [String], oldString: String, replaceAll: Bool) -> [MatchPosition]? {
+        func normalize(_ s: String) -> String {
+            let collapsed = s.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+            return collapsed.components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
+                .joined(separator: "\n")
+        }
+        let normalizedOld = normalize(oldString)
+        let oldLineCount = oldString.components(separatedBy: "\n").count
+        guard oldLineCount > 0, oldLineCount <= sourceLines.count else { return nil }
+
+        var positions: [MatchPosition] = []
+        for start in 0...(sourceLines.count - oldLineCount) {
+            let window = sourceLines[start..<(start + oldLineCount)].joined(separator: "\n")
+            if normalize(window) == normalizedOld {
+                positions.append(MatchPosition(lineStart: start, lineCount: oldLineCount))
+                if !replaceAll { break }
+            }
+        }
+        return positions.isEmpty ? nil : positions
     }
 
     /// Try three strategies in order: literal, line-trimmed, whitespace-normalized.
