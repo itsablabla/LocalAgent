@@ -15,6 +15,7 @@ actor FilesystemTools {
     static let maxLines = 2000
     static let maxBytes = 256 * 1024         // 256 KB cap for text output (matches Claude Code)
     static let maxLineLength = 2000          // truncate lines longer than this
+    static let maxTokens = 25_000            // token cap for text reads (matches Claude Code)
 
     struct ReadResult {
         let content: String
@@ -154,6 +155,14 @@ actor FilesystemTools {
                 joined = String(bytes: clipped, encoding: .utf8) ?? joined
                 joined += "\n… [output capped at \(Self.maxBytes) bytes]"
                 bytesTruncated = true
+            }
+
+            // Token cap (matches Claude Code): reject if content exceeds 25K tokens.
+            // Only enforced for whole-file reads (no explicit limit) to match CC behavior.
+            let estimatedTokens = joined.utf8.count / 4
+            if limit == nil && estimatedTokens > Self.maxTokens {
+                let msg = "File content (~\(estimatedTokens) tokens) exceeds maximum allowed tokens (\(Self.maxTokens)). Use offset and limit parameters to read specific portions of the file, or use grep to search for specific content instead of reading the whole file."
+                return ReadResult(content: jsonError(msg), attachments: [])
             }
 
             let truncated = endLine < allLines.count || bytesTruncated
