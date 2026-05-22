@@ -1,6 +1,8 @@
 import Foundation
 import UniformTypeIdentifiers
 import PDFKit
+import AppKit
+import ImageIO
 
 /// Core filesystem tool implementations: read_file, write_file, edit_file.
 /// Apply_patch lives in its own file (`ApplyPatch.swift`).
@@ -16,6 +18,11 @@ actor FilesystemTools {
     static let maxBytes = 256 * 1024         // 256 KB cap for text output (matches Claude Code)
     static let maxLineLength = 2000          // truncate lines longer than this
     static let maxTokens = 25_000            // token cap for text reads (matches Claude Code)
+
+    // Image caps — mirror Claude Code's auto-downscale behavior.
+    static let imageMaxLongSide = 1568        // Anthropic's internal resize cap
+    static let imageMaxTokens = 5_000         // token budget per image read
+    static let imageDownscaleQuality: CGFloat = 0.80  // JPEG quality for resized images
 
     struct ReadResult {
         let content: String
@@ -56,20 +63,53 @@ actor FilesystemTools {
 
         let mime = Self.mimeType(forPath: path)
 
-        // Images → multimodal attachment, whole file.
+        // Images → multimodal attachment, auto-downscaled if needed.
         if mime.hasPrefix("image/") && mime != "image/svg+xml" {
             do {
-                let data = try Data(contentsOf: URL(fileURLWithPath: path))
+                var data = try Data(contentsOf: URL(fileURLWithPath: path))
                 let filename = (path as NSString).lastPathComponent
+                let originalBytes = data.count
+                var finalMime = mime
+                var wasResized = false
+
+                // Check dimensions via ImageIO (cheap — no full decode).
+                if let source = CGImageSourceCreateWithData(data as CFData, nil),
+                   let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                   let w = props[kCGImagePropertyPixelWidth] as? Int,
+                   let h = props[kCGImagePropertyPixelHeight] as? Int {
+
+                    let estimatedTokens = (w * h) / 750
+                    let longSide = max(w, h)
+
+                    if estimatedTokens > Self.imageMaxTokens || longSide > Self.imageMaxLongSide {
+                        // Downscale: fit within imageMaxLongSide, re-encode as JPEG.
+                        let scale = Double(Self.imageMaxLongSide) / Double(longSide)
+                        let newW = Int(Double(w) * scale)
+                        let newH = Int(Double(h) * scale)
+
+                        if let nsImage = NSImage(data: data),
+                           let resized = Self.resizeImage(nsImage, to: NSSize(width: newW, height: newH)) {
+                            data = resized
+                            finalMime = "image/jpeg"
+                            wasResized = true
+                        }
+                    }
+                }
+
                 await FileTimeTracker.shared.recordRead(path: path)
-                let attachment = FileAttachment(data: data, mimeType: mime, filename: filename, sourcePath: path)
-                let summary: [String: Any] = [
+                let attachment = FileAttachment(data: data, mimeType: finalMime, filename: filename, sourcePath: path)
+                var summary: [String: Any] = [
                     "success": true,
                     "path": path,
-                    "mime_type": mime,
+                    "mime_type": finalMime,
                     "size_bytes": data.count,
                     "message": "Image attached. It will be visible to you on the next turn as a user-role multimodal message."
                 ]
+                if wasResized {
+                    summary["resized"] = true
+                    summary["original_size_bytes"] = originalBytes
+                    summary["message"] = "Image was auto-downscaled to fit within \(Self.imageMaxLongSide)px (token budget). Attached as JPEG."
+                }
                 return ReadResult(content: jsonString(summary), attachments: [attachment])
             } catch {
                 return ReadResult(content: jsonError("failed to read \(path): \(error.localizedDescription)"), attachments: [])
@@ -482,6 +522,33 @@ actor FilesystemTools {
             return str
         }
         return "{\"error\": \"failed to encode response\"}"
+    }
+
+    // MARK: - Image downscaling
+
+    /// Resize an NSImage to the target size and encode as JPEG.
+    /// Returns nil on failure (caller falls back to the original data).
+    private static func resizeImage(_ image: NSImage, to targetSize: NSSize) -> Data? {
+        let newImage = NSImage(size: targetSize)
+        newImage.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(
+            in: NSRect(origin: .zero, size: targetSize),
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .copy,
+            fraction: 1.0
+        )
+        newImage.unlockFocus()
+
+        guard let tiffData = newImage.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmapRep.representation(
+                  using: .jpeg,
+                  properties: [.compressionFactor: imageDownscaleQuality]
+              ) else {
+            return nil
+        }
+        return jpegData
     }
 }
 
