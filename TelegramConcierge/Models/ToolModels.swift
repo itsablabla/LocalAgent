@@ -485,7 +485,7 @@ enum AvailableTools {
     static let webSearch = ToolDefinition(
         function: FunctionDefinition(
             name: "web_search",
-            description: "Quick web-grounded answer. Runs a short internal agent loop that searches and (if useful) scrapes a few pages, then returns a concise synthesized answer with inline source citations. Use for current events, prices, stock quotes, weather, single facts, or any question needing fresh info you don't already know. Lighter and faster than web_research_sweep — prefer it when one short answer will do, not a survey. Do NOT use for general knowledge you already know. If you need the raw content of a known URL, use web_fetch.",
+            description: "Quick web-grounded answer. Runs a short internal agent loop that searches and scrapes a few pages, then returns a concise synthesized answer with inline source citations. Lighter and faster than web_research_sweep — prefer it when one short answer will do, not a full report. If you need the raw content of a known URL, use web_fetch.",
             parameters: FunctionParameters(
                 properties: [
                     "query": ParameterProperty(
@@ -501,12 +501,12 @@ enum AvailableTools {
     static let webResearchSweep = ToolDefinition(
         function: FunctionDefinition(
             name: "web_research_sweep",
-            description: "Broad multi-source research. Runs an internal agent loop that queries many sites, scrapes relevant pages, and returns a synthesized prose answer with inline source citations. The answer is condensed across sources — page contents are NOT returned verbatim. Use for topic overviews, market scans, long-form researched answers, or 'what does the web say about X' questions. Do NOT use to analyze or compare specific known URLs — use web_fetch on each URL for raw content.",
+            description: "Broad multi-source research. Runs an internal agent loop that queries many sites, scrapes relevant pages, and returns a synthesized prose answer with inline source citations. The answer is condensed across sources.",
             parameters: FunctionParameters(
                 properties: [
                     "query": ParameterProperty(
                         type: "string",
-                        description: "The research question or topic to investigate in depth. Include constraints, scope, and context from the conversation."
+                        description: "The research question or topic to investigate. Include constraints, scope, and context from the conversation."
                     )
                 ],
                 required: ["query"]
@@ -612,7 +612,7 @@ enum AvailableTools {
     static let webFetch = ToolDefinition(
         function: FunctionDefinition(
             name: "web_fetch",
-            description: "IMPORTANT: web_fetch WILL FAIL for authenticated or private URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, Notion). If so, look for a specialized MCP tool that provides authenticated access.\n\nFetches content from a URL and processes it with an AI model that extracts only the information matching your prompt. Use AFTER web_search or web_research_sweep when you need the content of a specific page. Returns a focused excerpt plus structured image and link arrays. If you want to actually SEE an image from the page, download it with bash curl -o /tmp/img.png <url> then read_file to view it multimodally. Ideal for: reading articles, documentation, product pages, API references, or any URL from search results where you need targeted information.\n\nUsage notes:\n- For GitHub URLs (PRs, issues, pull request diffs, repo contents), prefer using the gh CLI via bash instead — e.g. `gh pr view`, `gh issue view`, `gh api repos/<owner>/<repo>/...`. It handles auth automatically and is faster.\n- For a single known file in a public repo, `web_fetch` on the raw.githubusercontent.com URL is the lightest option (no clone, no API).\n- If the URL redirects to a different host, the tool will inform you and provide the redirect URL in the response. Make a new web_fetch request with the redirect URL to fetch the content.\n- The tool includes a short-lived cache so repeated calls on the same URL within a single session are cheap — you can re-fetch without worrying about re-ranking cost.",
+            description: "IMPORTANT: web_fetch WILL FAIL for authenticated or private URLs.\n\nFetches content from a URL and processes it with an AI model that extracts only the information matching your prompt. Use AFTER web_search or web_research_sweep when you need the content of a specific page. Returns a focused excerpt plus structured image and link arrays. If you want to actually SEE an image from the page, download it with bash curl -o /tmp/img.png <url> then read_file to view it multimodally. Ideal for: reading articles, documentation, product pages, API references, or any URL from search results where you need targeted information.\n\nUsage notes:\n- For GitHub URLs (PRs, issues, pull request diffs, repo contents), prefer using the gh CLI via bash instead — e.g. `gh pr view`, `gh issue view`, `gh api repos/<owner>/<repo>/...`. It handles auth automatically and is faster.\n- For a single known file in a public repo, `web_fetch` on the raw.githubusercontent.com URL is the lightest option (no clone, no API).",
             parameters: FunctionParameters(
                 properties: [
                     "url": ParameterProperty(
@@ -634,7 +634,7 @@ enum AvailableTools {
     static let sendDocumentToChat = ToolDefinition(
         function: FunctionDefinition(
             name: "send_document_to_chat",
-            description: "Send a document or file directly to the user via Telegram. Use when the user asks you to send/share a file, document, or image. Accepts any absolute file path on the filesystem. This sends the file to the user as an external side effect.",
+            description: "Send a document or file directly to the user via Telegram (main communication channel with the user). Use when the user asks you to send/share a file, document, or image. Or when you think it's appropriate.",
             parameters: FunctionParameters(
                 properties: [
                     "file_path": ParameterProperty(
@@ -728,7 +728,7 @@ enum AvailableTools {
     static let writeFile = ToolDefinition(
         function: FunctionDefinition(
             name: "write_file",
-            description: "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Prefer apply_patch for modifying existing code. Use this tool only to create new files or for complete rewrites.\n- Parent directories are created automatically.\n- NEVER create documentation files (*.md) or README files unless explicitly requested by the user.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and a 'diagnostics' array (errors/warnings from sourcekit-lsp / typescript-language-server / pylsp / gopls / rust-analyzer) — inspect both; always re-read and fix before continuing if any diagnostic has severity='error'.",
+            description: "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Prefer apply_patch for modifying existing code. Use this tool only to create new files or for complete rewrites.\n- Parent directories are created automatically.\n- NEVER create documentation files (*.md) or README files unless explicitly requested by the user.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and a 'diagnostics' array (errors/warnings from sourcekit-lsp / typescript-language-server / pylsp / gopls / rust-analyzer) — inspect both; always re-read and fix before continuing if any diagnostic has severity='error'.",
             parameters: FunctionParameters(
                 properties: [
                     "path": ParameterProperty(type: "string", description: "Absolute path to write."),
@@ -743,7 +743,7 @@ enum AvailableTools {
     static let editFile = ToolDefinition(
         function: FunctionDefinition(
             name: "edit_file",
-            description: "Performs string replacements in files. Prefer apply_patch for code edits; use this for tiny one-location replacements or as a fallback after apply_patch fails.\n\nUsage:\n- You must use the read_file tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.\n- When editing text from read_file output, preserve the exact indentation (tabs/spaces) after the display-only line prefix. The line prefix looks like '42→' or ' 42→'. Everything after the arrow is actual file content to match. Never include any part of the line number prefix in old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and diagnostics. If 'match_strategy_warning' appears, inspect the diff carefully and prefer apply_patch next time.",
+            description: "Performs string replacements in files. Prefer apply_patch for code edits; use this for tiny one-location replacements or as a fallback after apply_patch fails.\n\nUsage:\n- You must use the read_file tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.\n- When editing text from read_file output, preserve the exact indentation (tabs/spaces) after the display-only line prefix. The line prefix looks like '42→' or ' 42→'. Everything after the arrow is actual file content to match. Never include any part of the line number prefix in old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n- The result includes a 'diff' field (unified-diff preview, capped 50 lines / 4 KB) and diagnostics. If 'match_strategy_warning' appears, inspect the diff carefully and prefer apply_patch next time.",
             parameters: FunctionParameters(
                 properties: [
                     "path": ParameterProperty(type: "string", description: "Absolute path to the file."),
@@ -990,7 +990,7 @@ enum AvailableTools {
         - Trust but verify: a subagent's summary describes what it intended to do, not necessarily what it did. When a subagent writes or edits code, check the actual changes before reporting the work as done.
         - You can optionally run subagents in the background using run_in_background. When one completes, you'll be notified via a synthetic [SUBAGENT COMPLETE] message — do NOT sleep, poll, or proactively check on its progress.
         - **Foreground vs background**: Use foreground (default) when you need the subagent's results before you can proceed. Use background when you have genuinely independent work to do in parallel.
-        - To continue a previously spawned subagent, pass its session_id — that resumes it with full context. A new Agent call starts a fresh subagent with no memory of prior runs.
+        - To continue a previously spawned subagent, pass its session_id — that resumes it with full context. A new Agent call starts a fresh subagent with no memory of prior runs. Resume is useful to ask follow up or qualifying questions to a subagent that has already done the work.
         - Clearly tell the subagent whether you expect it to write code or just do research (search, file reads, web fetches), since it is not aware of the user's intent.
         - Subagents CANNOT spawn other subagents. Provide a self-contained prompt — the subagent sees none of your conversation history.
 
@@ -1000,7 +1000,6 @@ enum AvailableTools {
         - Explain what you're trying to accomplish and why.
         - Describe what you've already learned or ruled out.
         - Give enough context about the surrounding problem that the subagent can make judgment calls rather than just following a narrow instruction.
-        - If you need a short response, say so ("report in under 200 words").
         - Lookups: hand over the exact command. Investigations: hand over the question — prescribed steps become dead weight when the premise is wrong.
 
         Terse command-style prompts produce shallow, generic work.
@@ -1080,7 +1079,7 @@ enum AvailableTools {
     static let skill = ToolDefinition(
         function: FunctionDefinition(
             name: "skill",
-            description: "Load a curated procedural skill from ~/LocalAgent/skills/ into your context. Skills are hand-authored guides for specialized tasks (e.g., generating a polished PDF). The compact skill index at the top of the system prompt lists every installed skill and its trigger description — when a user's request matches one, call this tool with the skill's name BEFORE starting the task, then follow the procedure the skill returns. Skills are reference material: combine them with your own judgment, don't recite them verbatim. Calling this tool is cheap (it's a local file read) and the loaded body stays available for the rest of the session. You CANNOT create new skills via this tool — the user curates them manually.",
+            description: "Load a curated procedural skill from ~/LocalAgent/skills/ into your context. Skills are hand-authored guides for specialized tasks (e.g., generating a polished PDF). The compact skill index at the top of the system prompt lists every installed skill and its trigger description — when a user's request matches one, call this tool with the skill's name BEFORE starting the task, then follow the procedure the skill returns.",
             parameters: FunctionParameters(
                 properties: [
                     "skill_name": ParameterProperty(type: "string", description: "The canonical short name of the skill, matching its entry in the skills index (e.g., 'pdf'). Case-insensitive.")

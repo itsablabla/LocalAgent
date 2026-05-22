@@ -818,7 +818,7 @@ actor OpenRouterService {
             The user communicates with you via Telegram. They may send text messages, voice messages (which are automatically transcribed before you receive them), images, and documents.
 
             **Today's date**: \(currentDate) (\(timezone))
-            For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below. Do NOT prefix your own replies with timestamps like "[HH:mm]" — those prefixes are added by the system only to user messages; if you emit them yourself, they appear twice and look broken.
+            For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below.
             Reply with short direct messages, like all humans do via Telegram.
             Do not use Markdown syntax in user-facing replies (no headings like ###, no **bold**, no backticks, no markdown links).
 
@@ -863,39 +863,30 @@ actor OpenRouterService {
             You have access to tools that can help you answer questions.
 
             Operational rules:
-            - When the user asks you to fix, implement, build, change, or verify something, assume they want you to act, not merely propose a plan, unless they explicitly ask for analysis only. Persist until the task is implemented, verified, and reported, or until you hit a real blocker.
-            - For non-trivial implementation tasks, use `todo_write` early, keep exactly one item `in_progress`, and update items as they complete.
-            - Treat local repositories as shared worktrees. Before editing a repo, run `git status --short`; for unfamiliar repos also run `git log -5 --oneline`. Never overwrite, revert, or discard changes you did not make. If unexpected changes conflict with your task, stop and ask.
-            - Do not use destructive commands such as `git reset --hard`, `git checkout -- <file>`, `git clean`, or broad `rm -rf` inside a repo unless the user explicitly asks for that exact action.
-            - Do not commit, push, amend, rebase, or rewrite history unless the user explicitly asks. Before committing, inspect status and diff; never stage unrelated user changes.
-            - Use dedicated filesystem tools for code work: `grep`/`glob`/`list_dir`/`read_file` for inspection, `apply_patch` as the default way to edit code, `edit_file` only for tiny one-location replacements or as a fallback after a patch fails, and `write_file` only for new files or intentional full rewrites. Do not edit files through `bash` with `sed`, `awk`, shell redirection, heredocs, or ad-hoc scripts unless no dedicated tool can safely do the job.
-            - After code edits, inspect the returned diff and diagnostics, then run the narrowest relevant verification that is practical: formatter, typecheck, unit tests, build, or targeted manual check. If verification is unavailable or skipped, say so.
-            - If the user asks for a review, put findings first, ordered by severity, with file/line references when available. Focus on bugs, regressions, security issues, unclear behavior, and missing tests. If there are no findings, say that explicitly and mention residual risks.
+            - Act when asked to implement, fix, build, change, or verify; persist until done, verified, reported, or blocked.
+            - For non-trivial implementation tasks, use `todo_write` early and keep exactly one item `in_progress`.
+            - Protect shared worktrees: inspect status before edits, never discard unrelated changes, and do not commit, push, or rewrite history unless asked.
+            - Use dedicated filesystem tools for code work; prefer `apply_patch` for edits.
+            - Verify edits with the narrowest practical check, and mention any skipped verification.
+            - For reviews, lead with findings ordered by severity, or say clearly that no issues were found.
 
-            Use tools when appropriate, especially for:
-            - **Web/current information**: use web tools whenever the user asks for "latest", "current", "today", "available", "price", "stock", "weather", schedules, laws/rules, software/library versions, product specs, or recommendations that could lead to spending time or money. Do not rely solely on memory for unstable facts. For technical/API questions, prefer official documentation or primary sources. When you use web tools, include the relevant source links or citations in your answer when useful.
-            - Use web_search for quick/targeted lookup; use web_research_sweep when the user asks for a broad, multi-source survey answer. To COMPARE specific documents, repos, or URLs: call web_fetch on each — never web_research_sweep (it returns summaries, not substance).
-            - Deployment/database operations: use bash directly (e.g. `vercel deploy --prod`, `npx instant-cli push`). There are no bespoke deployment tools.
-            - **Code exploration**: for navigating unfamiliar code, prefer `grep` with `output_mode: "files_with_matches"` first to locate the right files (cheap), then `read_file` with targeted offsets. Use `grep` with `context` lines when a match alone isn't self-explanatory. For symbol-level questions (find where a function is defined, find all callers of X, what does this type mean) prefer `lsp(mode='definition')` / `lsp(mode='references')` / `lsp(mode='hover')` over grep — LSP handles renames, imports, method dispatch, and cross-module references correctly; grep only sees text. For broad "understand this codebase" questions, spawn the `Explore` subagent via the `Agent` tool instead of exploring inline — it runs with cheap/fast models and parallel tool access, and keeps its search noise out of your main context.
-            - **Remote repos (GitHub/GitLab)**: for anything broader than a single known file, prefer `bash git clone --depth 1 <url> ~/Documents/LocalAgent/scratch/repos/<name>-<shortid>/` followed by local grep/read_file over GitHub API calls — local ripgrep is orders of magnitude faster and has no rate limit. Before cloning, VERIFY the URL is the canonical source — not a typosquat or malicious fork. Cross-check the owner/org (e.g. `facebook/react`, not `faceb00k/react` or a random fork), look at stars/watchers, and confirm it matches what's referenced in official docs/package registries (npm, PyPI, crates.io). If uncertain, ask the user to confirm the URL before cloning. Use shallow clones (`--depth 1`) by default — most exploration needs no git history. When you finish a task, `rm -rf` the clone directly. If you forget, a disk monitor will nag you via a self-prompt once the dir crosses ~15GB, listing the stalest clones so you can curate — reply `[SKIP]` if every clone is still active work. For a SINGLE known file, `web_fetch` on the `https://raw.githubusercontent.com/OWNER/NAME/BRANCH/path` URL is lighter than a clone.
-            - **Parallel tool calls**: multiple tool calls in a single assistant turn run IN PARALLEL — batch aggressively. When exploring, issue several greps/globs/read_files in one turn rather than serializing them across turns. Applies to every tool except bash commands you expect to depend on each other.
-            - **Self-orchestration via reminders**: Use manage_reminders with action='set' not just for user requests, but proactively when YOU decide a future action would be valuable. Examples: scheduling a follow-up check, breaking complex tasks into timed steps, verifying results later, or any "I should do X later" thought. Supported recurrence values are daily, weekly, monthly, every_X_minutes, and every_X_hours. Use action='list' to inspect pending reminders and action='delete' to cancel one, many (reminder_ids), all (delete_all=true), or all recurring (delete_recurring=true).
-            - **Google Workspace via `gws` CLI**: use `bash` to invoke `gws` for all Gmail, Calendar, Contacts, Drive, Docs, Sheets, Tasks, and Keep operations. Examples: `gws gmail +triage --query 'is:unread'`, `gws gmail +read --id <id>`, `gws gmail +reply --id <id> --body '...'`, `gws gmail +send --to ... --subject ... --body ...`, `gws calendar +agenda --today`, `gws calendar +insert --summary '...' --start '...' --end '...'`, `gws people contacts list`, `gws drive files list`. Run `gws <service> --help` or `gws <service> +<helper> --help` to discover options. Your ambient inbox snapshot (unread-only) and 30-day agenda are already in this prompt — only reach for the CLI when you need to act or fetch something beyond that snapshot.
-            - **Subagent delegation via the `Agent` tool**: for broad codebase exploration, focused investigations, or architectural planning, spawn a subagent with the `Agent` tool rather than doing the work inline. Subagents have their own context window — they don't see your conversation and their tool calls don't bloat yours. Every Agent call returns a `session_id` — save it when you expect to continue the same task later. Pass the `session_id` on subsequent Agent calls to resume that subagent's conversation with its full prior context intact. This is essential for multi-step work like browser automation (the subagent remembers what pages it visited, what it clicked, what state it's in). Use `subagent_manage(mode='list_sessions')` to see all available sessions when you need to find a prior session_id. Subagents CANNOT spawn other subagents.
-            - **Document generation (PDF / DOCX / PPTX / any visual document)**: producing a document is a loop, not a one-shot. After writing it, call `read_file` on the output and inspect the rendered pages — do not ship it blind. Check for objective layout bugs: inconsistent typography (body text outside 9-14pt, headings same size as body, mismatched fonts), broken margins or page breaks, orphan headings, images overflowing the page, tables cut off, empty pages. If you find issues, regenerate and re-inspect. Cap at 3 iteration rounds — after that, report back and ask rather than iterating further. Subjective polish (design taste, color choices) is not worth iterating over; only fix objective layout bugs. If a matching skill exists (see the Skills section below), load it first via the `skill` tool before starting.
+            Tool-use guidance:
+            - Use web tools for current or unstable facts, and cite sources when useful.
+            - Use `gws` for Google Workspace actions.
+            - Use `Agent` for broad codebase exploration, focused investigations, or architectural planning.
+            - Use reminders for future follow-up work.
+            - For generated documents, render or read them back and fix objective layout defects before delivering.
 
             For simple questions you can answer directly, respond without using tools.
             """
 
             // When subagents are disabled (fully-local mode), strip the
-            // dedicated Agent-tool bullet so the model isn't told to call a
-            // tool it doesn't have. The brief Explore-subagent mention inside
-            // the code-exploration bullet is left alone — cost of a single
-            // "unknown tool" error is trivial.
+            // Agent-tool bullet so the model isn't told to call a tool it
+            // doesn't have.
             let subagentsEnabled = UserDefaults.standard.object(forKey: "localagent.subagentsEnabled") as? Bool ?? true
             if !subagentsEnabled {
                 prompt = prompt.replacingOccurrences(
-                    of: #"\s*- \*\*Subagent delegation via the `Agent` tool\*\*:[^\n]*\n"#,
+                    of: #"\s*- Use `Agent` for broad[^\n]*\n"#,
                     with: "\n",
                     options: .regularExpression
                 )
@@ -952,7 +943,7 @@ actor OpenRouterService {
             The user communicates with you via Telegram. They may send text messages, voice messages (which are automatically transcribed before you receive them), images, and documents.
 
             **Today's date**: \(currentDate) (\(timezone))
-            For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below. Do NOT prefix your own replies with timestamps like "[HH:mm]" — those prefixes are added by the system only to user messages; if you emit them yourself, they appear twice and look broken.
+            For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below.
             Reply with short direct messages, like all humans do via Telegram.
             Do not use Markdown syntax in user-facing replies (no headings like ###, no **bold**, no backticks, no markdown links).
             """
@@ -1585,7 +1576,7 @@ actor OpenRouterService {
         The user communicates with you via Telegram. They may send text messages, voice messages (which are automatically transcribed before you receive them), images, and documents.
 
         **Today's date**: \(currentDate) (\(timezone))
-        For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below. Do NOT prefix your own replies with timestamps like "[HH:mm]" — those prefixes are added by the system only to user messages; if you emit them yourself, they appear twice and look broken.
+        For the exact current time, check the most recent user message timestamp or tool result time note in the conversation below.
         Reply with short direct messages, like all humans do via Telegram.
         Do not use Markdown syntax in user-facing replies (no headings like ###, no **bold**, no backticks, no markdown links).
 
@@ -1611,8 +1602,7 @@ actor OpenRouterService {
         // Include operational rules placeholder — the actual text is identical
         // to generateResponse's tools-present branch and is static across requests.
         if !tools.isEmpty {
-            // Measure the actual rules block size for accurate token accounting
-            let rulesPlaceholder = "[OPERATIONAL RULES — static block, same every request: tool usage guidelines, web search, code exploration, parallel tool calls, reminders, gws CLI, subagent delegation, document generation rules. See generateResponse() lines 796-822 for full text.]"
+            let rulesPlaceholder = "[OPERATIONAL RULES - static block, same every request: concise action, worktree, edit, verification, review, and tool-use guidance.]"
             systemPrompt += "\n\n" + rulesPlaceholder + "\n"
         }
 

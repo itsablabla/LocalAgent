@@ -2948,7 +2948,7 @@ class ConversationManager: ObservableObject {
         - media/file relevance for listed media turns
         - useful facts from listed synthetic message bodies
         Do not summarize unlisted turns or stable visible chat text that is not being pruned.
-        Keep durable details: user goals, decisions, findings, errors, commands, file paths, filenames, IDs, URLs, tool outcomes, and unresolved next steps.
+        Keep durable details: user goals, decisions, findings, errors, commands, file paths, filenames, IDs, URLs, tool outcomes, and unresolved next steps. This summary's purpose is to let you continue to work without missing important information once this content is pruned. View it as a baton exchange to a future version of you that will not see this pruned content.
         Omit routine noise, duplicated logs, and low-value progress chatter.
         Write a compact chronological summary in 500-1000 words. This is internal memory, not a user-facing reply.
 
