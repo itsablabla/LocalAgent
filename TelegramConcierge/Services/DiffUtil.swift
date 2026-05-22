@@ -2,10 +2,10 @@ import Foundation
 
 /// Unified-diff helper for write_file / edit_file / apply_patch results.
 /// Shells out to /usr/bin/diff (always present on macOS) to produce a
-/// standard unified-diff payload. The diff goes into the *current turn's*
+/// standard unified-diff payload, then caps large output so huge rewrites do
+/// not bloat the tool result. The diff goes into the *current turn's*
 /// tool result only — it never enters the cached system-prompt prefix, so
-/// there is no prompt-cache impact. Context management (pruning old tool
-/// interactions) keeps the overall context budget in check.
+/// there is no prompt-cache impact.
 enum DiffUtil {
 
     /// Return a unified diff of `old` → `new`, or nil if diff is empty / the
@@ -18,11 +18,15 @@ enum DiffUtil {
     ///     (`--- a/<path>` / `+++ b/<path>`) so the model sees a meaningful
     ///     location instead of a tmpfile path.
     ///   - context: number of context lines around each hunk (default 3).
+    ///   - maxLines: cap on total diff lines returned (default 400).
+    ///   - maxBytes: cap on total diff bytes returned (default 64 KB).
     static func unifiedDiff(
         old: String,
         new: String,
         path: String,
-        context: Int = 3
+        context: Int = 3,
+        maxLines: Int = 400,
+        maxBytes: Int = 64 * 1024
     ) -> String? {
         if old == new { return nil }
 
@@ -66,6 +70,25 @@ enum DiffUtil {
         text = text.replacingOccurrences(of: oldURL.path, with: "a/" + path)
         text = text.replacingOccurrences(of: newURL.path, with: "b/" + path)
 
-        return text
+        return cap(text, maxLines: maxLines, maxBytes: maxBytes)
+    }
+
+    private static func cap(_ text: String, maxLines: Int, maxBytes: Int) -> String {
+        var truncated = false
+        var working = text
+        let rawLines = working.split(separator: "\n", omittingEmptySubsequences: false)
+        if rawLines.count > maxLines {
+            working = rawLines.prefix(maxLines).joined(separator: "\n")
+            truncated = true
+        }
+        if working.utf8.count > maxBytes {
+            let clipped = Array(working.utf8).prefix(maxBytes)
+            working = String(bytes: clipped, encoding: .utf8) ?? working
+            truncated = true
+        }
+        if truncated {
+            working += "\n… [diff truncated at \(maxLines) lines / \(maxBytes) bytes]"
+        }
+        return working
     }
 }

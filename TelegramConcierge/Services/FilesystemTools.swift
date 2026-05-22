@@ -303,6 +303,10 @@ actor FilesystemTools {
             return OpResult(content: jsonError("edit_file requires at least one edit"))
         }
         for (i, edit) in edits.enumerated() {
+            if edit.oldString.isEmpty {
+                let label = edits.count > 1 ? "edits[\(i)]: " : ""
+                return OpResult(content: jsonError("\(label)old_string must not be empty"))
+            }
             if edit.oldString == edit.newString {
                 let label = edits.count > 1 ? "edits[\(i)]: " : ""
                 return OpResult(content: jsonError("\(label)old_string and new_string are identical — nothing to do"))
@@ -323,53 +327,30 @@ actor FilesystemTools {
 
         // --- Phase 1: Match all edits against the ORIGINAL content ---
         struct MatchedEdit {
-            let index: Int          // position in the edits array
-            let matchStart: Int     // line index in source where old_string starts
-            let matchLength: Int    // number of source lines consumed
-            let newString: String   // replacement text
-            let strategy: String    // which tier matched
+            let index: Int
+            let range: Range<String.Index>
+            let newString: String
+            let strategy: String
         }
 
-        let srcLines = original.components(separatedBy: "\n")
         var matchedEdits: [MatchedEdit] = []
         var usedNonLiteral = false
 
         for (i, edit) in edits.enumerated() {
             let label = edits.count > 1 ? "edits[\(i)]: " : ""
 
-            // Try matching this edit against the original content
-            let result = EditStrategies.apply(
-                source: original,
-                oldString: edit.oldString,
-                newString: edit.newString,
-                replaceAll: replaceAll
-            )
-
-            switch result {
+            switch EditStrategies.findMatches(source: original, oldString: edit.oldString, replaceAll: replaceAll) {
             case .noMatch:
                 return OpResult(content: jsonError("\(label)old_string not found in \(path). It must match exactly including whitespace and indentation."))
             case .multipleMatches(let count):
                 return OpResult(content: jsonError("\(label)old_string occurs \(count) times in \(path). Provide more surrounding context to make it unique, or pass replace_all=true."))
-            case .success(_, _, let strategy):
+            case .success(let matches, let strategy):
                 if strategy != "literal" { usedNonLiteral = true }
 
-                // Find the line position of the match for overlap detection.
-                // Re-run the match to get the position (using the strategy that worked).
-                let matchInfo = EditStrategies.findMatch(
-                    source: original,
-                    sourceLines: srcLines,
-                    oldString: edit.oldString,
-                    replaceAll: replaceAll
-                )
-                guard let info = matchInfo else {
-                    return OpResult(content: jsonError("\(label)internal error: match lost during position lookup"))
-                }
-
-                for pos in info.positions {
+                for match in matches {
                     matchedEdits.append(MatchedEdit(
                         index: i,
-                        matchStart: pos.lineStart,
-                        matchLength: pos.lineCount,
+                        range: match.range,
                         newString: edit.newString,
                         strategy: strategy
                     ))
@@ -377,27 +358,23 @@ actor FilesystemTools {
             }
         }
 
-        // --- Phase 2: Check for overlaps (only relevant for multi-edit) ---
-        if edits.count > 1 {
-            let sorted = matchedEdits.sorted { $0.matchStart < $1.matchStart }
-            for j in 1..<sorted.count {
-                let prev = sorted[j - 1]
-                let curr = sorted[j]
-                if prev.matchStart + prev.matchLength > curr.matchStart {
-                    return OpResult(content: jsonError("edits[\(prev.index)] and edits[\(curr.index)] overlap. Merge them into one edit or target disjoint regions."))
-                }
+        // --- Phase 2: Check for overlaps ---
+        let sorted = matchedEdits.sorted { $0.range.lowerBound < $1.range.lowerBound }
+        for j in 1..<sorted.count {
+            let prev = sorted[j - 1]
+            let curr = sorted[j]
+            if prev.range.upperBound > curr.range.lowerBound {
+                return OpResult(content: jsonError("edits[\(prev.index)] and edits[\(curr.index)] overlap. Merge them into one edit or target disjoint regions."))
             }
         }
 
         // --- Phase 3: Apply all edits (last-to-first to keep positions stable) ---
-        var working = srcLines
-        let sortedReversed = matchedEdits.sorted { $0.matchStart > $1.matchStart }
+        var updated = original
+        let sortedReversed = matchedEdits.sorted { $0.range.lowerBound > $1.range.lowerBound }
         for m in sortedReversed {
-            let newLines = m.newString.components(separatedBy: "\n")
-            working.replaceSubrange(m.matchStart..<(m.matchStart + m.matchLength), with: newLines)
+            updated.replaceSubrange(m.range, with: m.newString)
         }
 
-        let updated = working.joined(separator: "\n")
         if updated == original {
             return OpResult(content: jsonError("No changes made. The replacement produced identical content."))
         }
@@ -641,221 +618,118 @@ actor FilesystemTools {
 // MARK: - Edit match strategies
 
 enum EditStrategies {
-    enum Outcome {
+    enum MatchOutcome {
         case noMatch
         case multipleMatches(count: Int)
-        case success(updated: String, replacements: Int, strategy: String)
+        case success(matches: [MatchRange], strategy: String)
     }
 
-    /// Position of a match within the source lines.
-    struct MatchPosition {
-        let lineStart: Int
-        let lineCount: Int
+    struct MatchRange {
+        let range: Range<String.Index>
     }
 
-    /// Result of a position-aware match search.
-    struct MatchInfo {
-        let positions: [MatchPosition]
+    private struct SourceLine {
+        let text: String
+        let range: Range<String.Index>
     }
 
-    /// Find the line positions of oldString in source, trying all three strategies.
-    /// Used after `apply()` confirms a match exists, to get positional info for overlap detection.
-    static func findMatch(source: String, sourceLines: [String], oldString: String, replaceAll: Bool) -> MatchInfo? {
-        let oldLines = oldString.components(separatedBy: "\n")
-
-        // Strategy 1: Literal — find the substring, then map byte offset to line index.
-        let indices = indicesOf(needle: oldString, inHaystack: source)
-        if !indices.isEmpty {
-            var positions: [MatchPosition] = []
-            for idx in indices {
-                let prefixEnd = source[source.startIndex..<idx]
-                let lineStart = prefixEnd.components(separatedBy: "\n").count - 1
-                positions.append(MatchPosition(lineStart: lineStart, lineCount: oldLines.count))
-                if !replaceAll { break }
+    /// Find exact source ranges for oldString without building a replacement string.
+    static func findMatches(source: String, oldString: String, replaceAll: Bool) -> MatchOutcome {
+        let literalRanges = rangesOf(needle: oldString, inHaystack: source)
+        if !literalRanges.isEmpty {
+            if literalRanges.count > 1 && !replaceAll {
+                return .multipleMatches(count: literalRanges.count)
             }
-            return MatchInfo(positions: positions)
+            return .success(matches: literalRanges.map { MatchRange(range: $0) }, strategy: "literal")
         }
 
-        // Strategy 2: Line-trimmed
-        if let positions = findLineTrimmed(sourceLines: sourceLines, oldString: oldString, replaceAll: replaceAll) {
-            return MatchInfo(positions: positions)
+        let sourceLines = linesWithRanges(in: source)
+        if let ranges = findLineTrimmedRanges(sourceLines: sourceLines, oldString: oldString) {
+            if ranges.count > 1 && !replaceAll {
+                return .multipleMatches(count: ranges.count)
+            }
+            return .success(matches: ranges.map { MatchRange(range: $0) }, strategy: "line-trimmed")
         }
 
-        // Strategy 3: Whitespace-normalized
-        if let positions = findWhitespaceNormalized(sourceLines: sourceLines, oldString: oldString, replaceAll: replaceAll) {
-            return MatchInfo(positions: positions)
+        if let ranges = findWhitespaceNormalizedRanges(sourceLines: sourceLines, oldString: oldString) {
+            if ranges.count > 1 && !replaceAll {
+                return .multipleMatches(count: ranges.count)
+            }
+            return .success(matches: ranges.map { MatchRange(range: $0) }, strategy: "whitespace-normalized")
         }
 
-        return nil
+        return .noMatch
     }
 
-    private static func findLineTrimmed(sourceLines: [String], oldString: String, replaceAll: Bool) -> [MatchPosition]? {
-        let oldTrimmed = oldString
+    private static func linesWithRanges(in source: String) -> [SourceLine] {
+        var lines: [SourceLine] = []
+        var lineStart = source.startIndex
+        var index = source.startIndex
+
+        while index < source.endIndex {
+            if source[index] == "\n" {
+                lines.append(SourceLine(text: String(source[lineStart..<index]), range: lineStart..<index))
+                index = source.index(after: index)
+                lineStart = index
+            } else {
+                index = source.index(after: index)
+            }
+        }
+
+        lines.append(SourceLine(text: String(source[lineStart..<source.endIndex]), range: lineStart..<source.endIndex))
+        return lines
+    }
+
+    private static func findLineTrimmedRanges(sourceLines: [SourceLine], oldString: String) -> [Range<String.Index>]? {
+        let oldLines = oldString
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
-            .joined(separator: "\n")
-        let oldLines = oldTrimmed.components(separatedBy: "\n")
-        guard oldLines.count > 0, oldLines.count <= sourceLines.count else { return nil }
+        guard !oldLines.isEmpty, oldLines.count <= sourceLines.count else { return nil }
 
-        var positions: [MatchPosition] = []
+        var ranges: [Range<String.Index>] = []
         for start in 0...(sourceLines.count - oldLines.count) {
             var hit = true
             for i in 0..<oldLines.count {
-                let srcLine = sourceLines[start + i].trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+                let srcLine = sourceLines[start + i].text.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
                 if srcLine != oldLines[i] { hit = false; break }
             }
             if hit {
-                positions.append(MatchPosition(lineStart: start, lineCount: oldLines.count))
-                if !replaceAll { break }
+                ranges.append(sourceLines[start].range.lowerBound..<sourceLines[start + oldLines.count - 1].range.upperBound)
             }
         }
-        return positions.isEmpty ? nil : positions
+        return ranges.isEmpty ? nil : ranges
     }
 
-    private static func findWhitespaceNormalized(sourceLines: [String], oldString: String, replaceAll: Bool) -> [MatchPosition]? {
+    private static func findWhitespaceNormalizedRanges(sourceLines: [SourceLine], oldString: String) -> [Range<String.Index>]? {
         func normalize(_ s: String) -> String {
             let collapsed = s.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
             return collapsed.components(separatedBy: "\n")
                 .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
                 .joined(separator: "\n")
         }
+
         let normalizedOld = normalize(oldString)
         let oldLineCount = oldString.components(separatedBy: "\n").count
         guard oldLineCount > 0, oldLineCount <= sourceLines.count else { return nil }
 
-        var positions: [MatchPosition] = []
+        var ranges: [Range<String.Index>] = []
         for start in 0...(sourceLines.count - oldLineCount) {
-            let window = sourceLines[start..<(start + oldLineCount)].joined(separator: "\n")
+            let window = sourceLines[start..<(start + oldLineCount)].map(\.text).joined(separator: "\n")
             if normalize(window) == normalizedOld {
-                positions.append(MatchPosition(lineStart: start, lineCount: oldLineCount))
-                if !replaceAll { break }
+                ranges.append(sourceLines[start].range.lowerBound..<sourceLines[start + oldLineCount - 1].range.upperBound)
             }
         }
-        return positions.isEmpty ? nil : positions
+        return ranges.isEmpty ? nil : ranges
     }
 
-    /// Try three strategies in order: literal, line-trimmed, whitespace-normalized.
-    /// Returns early on any successful unique match.
-    static func apply(source: String, oldString: String, newString: String, replaceAll: Bool) -> Outcome {
-        // 1. Literal match.
-        if let outcome = tryLiteral(source: source, oldString: oldString, newString: newString, replaceAll: replaceAll, strategyName: "literal") {
-            return outcome
-        }
-        // 2. Line-trimmed match: match ignoring trailing whitespace on each line.
-        if let outcome = tryLineTrimmed(source: source, oldString: oldString, newString: newString, replaceAll: replaceAll) {
-            return outcome
-        }
-        // 3. Whitespace-normalized match: collapse runs of whitespace.
-        if let outcome = tryWhitespaceNormalized(source: source, oldString: oldString, newString: newString, replaceAll: replaceAll) {
-            return outcome
-        }
-        return .noMatch
-    }
-
-    private static func tryLiteral(source: String, oldString: String, newString: String, replaceAll: Bool, strategyName: String) -> Outcome? {
-        let matches = indicesOf(needle: oldString, inHaystack: source)
-        if matches.isEmpty { return nil }
-        if matches.count > 1 && !replaceAll {
-            return .multipleMatches(count: matches.count)
-        }
-        let updated: String
-        let count: Int
-        if replaceAll {
-            updated = source.replacingOccurrences(of: oldString, with: newString)
-            count = matches.count
-        } else {
-            var s = source
-            if let range = s.range(of: oldString) {
-                s.replaceSubrange(range, with: newString)
-            }
-            updated = s
-            count = 1
-        }
-        return .success(updated: updated, replacements: count, strategy: strategyName)
-    }
-
-    private static func tryLineTrimmed(source: String, oldString: String, newString: String, replaceAll: Bool) -> Outcome? {
-        // Normalize both sides by stripping trailing whitespace on each line.
-        let oldTrimmed = oldString
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
-            .joined(separator: "\n")
-        let srcLines = source.components(separatedBy: "\n")
-        let oldLines = oldTrimmed.components(separatedBy: "\n")
-        guard oldLines.count > 0, oldLines.count <= srcLines.count else { return nil }
-
-        var matchPositions: [Int] = []  // starting source-line indices
-        for start in 0...(srcLines.count - oldLines.count) {
-            var hit = true
-            for i in 0..<oldLines.count {
-                let srcLine = srcLines[start + i].trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
-                if srcLine != oldLines[i] { hit = false; break }
-            }
-            if hit { matchPositions.append(start) }
-        }
-        if matchPositions.isEmpty { return nil }
-        if matchPositions.count > 1 && !replaceAll {
-            return .multipleMatches(count: matchPositions.count)
-        }
-
-        var working = srcLines
-        var replacements = 0
-        let newLines = newString.components(separatedBy: "\n")
-        // Replace from last to first so indices remain valid.
-        for pos in matchPositions.reversed() {
-            working.replaceSubrange(pos..<(pos + oldLines.count), with: newLines)
-            replacements += 1
-            if !replaceAll { break }
-        }
-        // If we iterated reversed with replaceAll=false, we still applied only the last match,
-        // which is the unique match (matchPositions.count == 1). OK.
-        return .success(updated: working.joined(separator: "\n"), replacements: replacements, strategy: "line-trimmed")
-    }
-
-    private static func tryWhitespaceNormalized(source: String, oldString: String, newString: String, replaceAll: Bool) -> Outcome? {
-        func normalize(_ s: String) -> String {
-            let collapsed = s.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
-            return collapsed.components(separatedBy: "\n")
-                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
-                .joined(separator: "\n")
-        }
-        let normalizedOld = normalize(oldString)
-        // Slide a window of the same line count over source, normalizing the window.
-        let srcLines = source.components(separatedBy: "\n")
-        let oldLineCount = oldString.components(separatedBy: "\n").count
-        guard oldLineCount > 0, oldLineCount <= srcLines.count else { return nil }
-
-        var matchPositions: [Int] = []
-        for start in 0...(srcLines.count - oldLineCount) {
-            let window = srcLines[start..<(start + oldLineCount)].joined(separator: "\n")
-            if normalize(window) == normalizedOld {
-                matchPositions.append(start)
-            }
-        }
-        if matchPositions.isEmpty { return nil }
-        if matchPositions.count > 1 && !replaceAll {
-            return .multipleMatches(count: matchPositions.count)
-        }
-
-        var working = srcLines
-        var replacements = 0
-        let newLines = newString.components(separatedBy: "\n")
-        for pos in matchPositions.reversed() {
-            working.replaceSubrange(pos..<(pos + oldLineCount), with: newLines)
-            replacements += 1
-            if !replaceAll { break }
-        }
-        return .success(updated: working.joined(separator: "\n"), replacements: replacements, strategy: "whitespace-normalized")
-    }
-
-    private static func indicesOf(needle: String, inHaystack haystack: String) -> [String.Index] {
-        var results: [String.Index] = []
-        guard !needle.isEmpty else { return results }
+    private static func rangesOf(needle: String, inHaystack haystack: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        guard !needle.isEmpty else { return ranges }
         var searchStart = haystack.startIndex
         while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
-            results.append(range.lowerBound)
+            ranges.append(range)
             searchStart = range.upperBound
         }
-        return results
+        return ranges
     }
 }

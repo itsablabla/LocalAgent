@@ -63,7 +63,7 @@ extension ToolExecutor {
                 editPairs.append(FilesystemTools.EditPair(oldString: old, newString: new))
             }
         } else if let oldString = args.string("old_string"),
-                  let newString = args.string("new_string") {
+                  let newString = args.stringAllowingEmpty("new_string") {
             editPairs.append(FilesystemTools.EditPair(oldString: oldString, newString: newString))
         } else {
             return "{\"error\": \"edit_file requires either 'edits' array or 'old_string'+'new_string'\"}"
