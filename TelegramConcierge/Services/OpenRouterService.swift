@@ -864,6 +864,7 @@ actor OpenRouterService {
 
             Operational rules:
             - Act when asked to implement, fix, build, change, or verify; persist until done, verified, reported, or blocked.
+            - For content-dependent work, inspect the relevant primary sources before answering or acting. READMEs, filenames, summaries, search results, and memory can guide you, but are not enough on their own. Reuse evidence already inspected; only re-inspect if the task shifts or the evidence is incomplete, stale, or ambiguous. If you cannot inspect enough, say what you checked and what remains uncertain.
             - For non-trivial implementation tasks, use `todo_write` early and keep exactly one item `in_progress`.
             - Protect shared worktrees: inspect status before edits, never discard unrelated changes, and do not commit, push, or rewrite history unless asked.
             - Use dedicated filesystem tools for code work; prefer `apply_patch` for edits.
@@ -874,10 +875,11 @@ actor OpenRouterService {
             - Use web tools for current or unstable facts, and cite sources when useful.
             - Use `gws` for Google Workspace actions.
             - Use `Agent` for broad codebase exploration, focused investigations, or architectural planning.
-            - Use reminders for future follow-up work.
+            - Use reminders for future follow-up work. They are your way to wake yourself up in the future.
             - For generated documents, render or read them back and fix objective layout defects before delivering.
+            - To explore remote repos (GitHub) clone them with --depth 1 in ~/Documents/LocalAgent/scratch/repos/. Local exploration is way more efficient. Before cloning make sure the URL is the canonical source — not a typosquat or malicious fork. When you finish the task, `rm -rf` the clone directly. Fora a single known file, web_fetch  on the raw.githubusercontent.com URL is lighter than a clone. For PR/Issue metadata, use the gh CLI.
 
-            For simple questions you can answer directly, respond without using tools.
+            For simple questions that do not depend on underlying content (or about content that is already present in context), respond without using tools.
             """
 
             // When subagents are disabled (fully-local mode), strip the
