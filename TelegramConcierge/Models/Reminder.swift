@@ -57,6 +57,22 @@ enum RecurrenceType: Codable, Equatable {
             return calendar.date(byAdding: .day, value: 1, to: date) ?? date
         }
     }
+
+    /// Snap an initial trigger date to a valid occurrence for this recurrence.
+    /// For `.daysOfWeek`, advances to the nearest selected weekday on or after
+    /// `date` (preserving the time of day); other cases return `date` unchanged.
+    func alignedInitialTriggerDate(from date: Date) -> Date {
+        guard case .daysOfWeek(let isoDays) = self else { return date }
+        let calendar = Calendar.current
+        let appleDays = Set(isoDays.map { ($0 % 7) + 1 })
+        for offset in 0...6 {
+            guard let candidate = calendar.date(byAdding: .day, value: offset, to: date) else { continue }
+            if appleDays.contains(calendar.component(.weekday, from: candidate)) {
+                return candidate
+            }
+        }
+        return date
+    }
 }
 
 // MARK: - Reminder Model

@@ -626,11 +626,10 @@ actor ToolExecutor {
             // days_of_week takes precedence over recurrence string
             let recurrence: RecurrenceType?
             if let daysArray = args.daysOfWeek, !daysArray.isEmpty {
-                let validDays = Set(daysArray.filter { $0 >= 1 && $0 <= 7 })
-                guard !validDays.isEmpty else {
+                guard daysArray.allSatisfy({ $0 >= 1 && $0 <= 7 }) else {
                     return #"{"error":"days_of_week values must be 1-7 (1=Monday, 7=Sunday)"}"#
                 }
-                recurrence = .daysOfWeek(days: validDays)
+                recurrence = .daysOfWeek(days: Set(daysArray))
             } else if let recurrenceRaw = args.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines),
                !recurrenceRaw.isEmpty {
                 guard let parsed = parseRecurrenceType(recurrenceRaw) else {
@@ -641,7 +640,10 @@ actor ToolExecutor {
                 recurrence = nil
             }
 
-            let reminder = await ReminderService.shared.addReminder(triggerDate: date, prompt: prompt, recurrence: recurrence)
+            // For day-of-week recurrence, snap the first occurrence forward to a selected weekday
+            let triggerDate = recurrence?.alignedInitialTriggerDate(from: date) ?? date
+
+            let reminder = await ReminderService.shared.addReminder(triggerDate: triggerDate, prompt: prompt, recurrence: recurrence)
             let dateFormatter = DateFormatter()
             dateFormatter.dateStyle = .full
             dateFormatter.timeStyle = .short
@@ -652,7 +654,7 @@ actor ToolExecutor {
             let result = SetReminderResult(
                 success: true,
                 reminderId: reminder.id.uuidString,
-                scheduledFor: dateFormatter.string(from: date),
+                scheduledFor: dateFormatter.string(from: triggerDate),
                 message: message
             )
             let encoder = JSONEncoder()
