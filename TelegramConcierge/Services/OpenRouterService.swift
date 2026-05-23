@@ -1222,7 +1222,12 @@ actor OpenRouterService {
                 textContent = rolePrefix + textContent
                 contentParts.append(.text(textContent))
 
-                apiMessages.append(OpenRouterAPIMessage(role: role, content: .parts(contentParts)))
+                apiMessages.append(OpenRouterAPIMessage(
+                    role: role,
+                    content: .parts(contentParts),
+                    reasoning: role == "assistant" ? message.assistantReasoning : nil,
+                    reasoningDetails: role == "assistant" ? message.assistantReasoningDetails : nil
+                ))
             } else {
                 // Standard text message. Internal per-turn metadata is injected
                 // separately as a system note so the model does not mistake it
@@ -1236,7 +1241,12 @@ actor OpenRouterService {
                 // still applies to both to mark day boundaries consistently.
                 let rolePrefix = (message.role == .user) ? (dateHeader + timePrefix) : dateHeader
                 textContent = rolePrefix + textContent
-                apiMessages.append(OpenRouterAPIMessage(role: role, content: .text(textContent)))
+                apiMessages.append(OpenRouterAPIMessage(
+                    role: role,
+                    content: .text(textContent),
+                    reasoning: role == "assistant" ? message.assistantReasoning : nil,
+                    reasoningDetails: role == "assistant" ? message.assistantReasoningDetails : nil
+                ))
             }
 
             if let metadataNote = await historyMetadataNote(for: message) {
@@ -1514,7 +1524,14 @@ actor OpenRouterService {
             throw OpenRouterError.noContent
         }
 
-        return .text(content, promptTokens: promptTokens, completionTokens: completionTokens, spendUSD: callSpendUSD)
+        return .text(
+            content,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            spendUSD: callSpendUSD,
+            reasoning: choice.message.reasoning,
+            reasoningDetails: choice.message.reasoningDetails
+        )
     }
     
     // MARK: - Context Snapshot
@@ -1697,6 +1714,10 @@ actor OpenRouterService {
             // Message content
             let contentPreview = message.content
             out += "[\(i)] \(role) (\(time)): \(contentPreview)\n"
+            if let reasoning = message.assistantReasoning {
+                let preview = snapshotPreview(reasoning, maxLength: 300)
+                out += "  [final reasoning: \(preview)]\n"
+            }
 
             // Attachments
             for img in message.imageFileNames {
@@ -2827,7 +2848,30 @@ struct OpenRouterResponseMessage: Codable {
         case content
         case toolCalls = "tool_calls"
         case reasoning
+        case reasoningContent = "reasoning_content"
         case reasoningDetails = "reasoning_details"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try container.decode(String.self, forKey: .role)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
+        if let parsedReasoning = try container.decodeIfPresent(JSONValue.self, forKey: .reasoning) {
+            reasoning = parsedReasoning
+        } else {
+            reasoning = try container.decodeIfPresent(JSONValue.self, forKey: .reasoningContent)
+        }
+        reasoningDetails = try container.decodeIfPresent(JSONValue.self, forKey: .reasoningDetails)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        try container.encodeIfPresent(content, forKey: .content)
+        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
+        try container.encodeIfPresent(reasoning, forKey: .reasoning)
+        try container.encodeIfPresent(reasoningDetails, forKey: .reasoningDetails)
     }
 }
 
