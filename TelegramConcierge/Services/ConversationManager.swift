@@ -1321,18 +1321,14 @@ class ConversationManager: ObservableObject {
             for message in messages {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             print("[ConversationManager] Manual prune using estimated tokens: \(totalTokens)")
         }
 
         var prunableToolTokens = 0
         for (i, message) in messages.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
         }
 
@@ -3134,7 +3130,6 @@ class ConversationManager: ObservableObject {
             for message in messages {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             print("[ConversationManager] Using estimated tokens: \(totalTokens)")
         }
@@ -3143,11 +3138,8 @@ class ConversationManager: ObservableObject {
         var prunableToolTokens = 0
         var prunableMediaTokens = 0
         for (i, message) in messages.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolTokensForMessage(message, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
             if i != protectedIndex && message.hasUnprunedMedia {
                 prunableMediaTokens += mediaSavingsForMessage(message, isLMStudio: providerIsLMStudio)
@@ -3288,18 +3280,14 @@ class ConversationManager: ObservableObject {
             for message in messagesForLLM {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             totalTokens += currentTurnInteractions.reduce(0) { $0 + currentTurnInteractionTokens($1, isLMStudio: providerIsLMStudio) }
         }
         var prunableToolTokens = 0
         var prunableMediaTokens = 0
         for (i, message) in messagesForLLM.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolTokensForMessage(message, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
             if i != protectedIndex && message.hasUnprunedMedia {
                 prunableMediaTokens += mediaSavingsForMessage(message, isLMStudio: providerIsLMStudio)
