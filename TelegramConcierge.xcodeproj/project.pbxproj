@@ -12,7 +12,6 @@
 		1BAD23572F2E2F00000A88B2 /* WhisperKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAD23562F2E2F00000A88B2 /* WhisperKitService.swift */; };
 		2B0A45D1F5390F2A1E1AD385 /* Reminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDB20D1783E9B2F00765A721 /* Reminder.swift */; };
 		31B7CF7E140CC51F1318A043 /* FileDescriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F41BFCEF3C81A6A0A64255 /* FileDescriptionService.swift */; };
-		VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */; };
 		58BCD35919355360BA19A45B /* ConversationArchiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */; };
 		603CFC4690F84C64979D3048 /* WebOrchestrator+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD50E4C9FE60DE1DEB6071AF /* WebOrchestrator+Helpers.swift */; };
 		68FA8CA6412AA1AFB0B30BBA /* ToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E12F15918DC9CEE64092A28 /* ToolExecutor.swift */; };
@@ -21,7 +20,6 @@
 		87DCAC7DFD7B3B3C02ECDBA3 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55871B59F1F9B733E94E96B7 /* CalendarService.swift */; };
 		A1000001282D4F0100000001 /* TelegramConciergeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002282D4F0100000001 /* TelegramConciergeApp.swift */; };
 		A1000003282D4F0100000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004282D4F0100000001 /* ContentView.swift */; };
-		MAINVIEW0123456789ABCD1A /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAINVIEW0123456789ABCD1B /* MainView.swift */; };
 		A1000005282D4F0100000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000006282D4F0100000001 /* Assets.xcassets */; };
 		A1000007282D4F0100000001 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000008282D4F0100000001 /* Message.swift */; };
 		A1000009282D4F0100000001 /* TelegramModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000A282D4F0100000001 /* TelegramModels.swift */; };
@@ -63,6 +61,7 @@
 		LSPLANG000123456789AB1A /* LSPLanguages.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSPLANG000123456789AB1B /* LSPLanguages.swift */; };
 		LSPREGISTRY0123456789A1A /* LSPRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSPREGISTRY0123456789A1B /* LSPRegistry.swift */; };
 		LSPTYPES00123456789AB1A /* LSPTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSPTYPES00123456789AB1B /* LSPTypes.swift */; };
+		MAINVIEW0123456789ABCD1A /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAINVIEW0123456789ABCD1B /* MainView.swift */; };
 		MCPCLIENT0123456789AB1A /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCPCLIENT0123456789AB1B /* MCPClient.swift */; };
 		MCPFRAME00123456789AB1A /* MCPFraming.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCPFRAME00123456789AB1B /* MCPFraming.swift */; };
 		MCPREGISTRY0123456789A1A /* MCPRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCPREGISTRY0123456789A1B /* MCPRegistry.swift */; };
@@ -84,6 +83,7 @@
 		TODOSTORE0123456789ABCD1A /* TodoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TODOSTORE0123456789ABCD1B /* TodoStore.swift */; };
 		TOOLEXECFS0123456789AB1A /* ToolExecutor+Filesystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = TOOLEXECFS0123456789AB1B /* ToolExecutor+Filesystem.swift */; };
 		USERAGNTL0123456789AB1A /* UserAgentLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = USERAGNTL0123456789AB1B /* UserAgentLoader.swift */; };
+		VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -97,7 +97,6 @@
 		A1000000282D4F0100000001 /* LocalAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000002282D4F0100000001 /* TelegramConciergeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramConciergeApp.swift; sourceTree = "<group>"; };
 		A1000004282D4F0100000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		MAINVIEW0123456789ABCD1B /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		A1000006282D4F0100000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000008282D4F0100000001 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		A100000A282D4F0100000001 /* TelegramModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramModels.swift; sourceTree = "<group>"; };
@@ -127,7 +126,6 @@
 		DIFFUTIL00123456789ABCD1B /* DiffUtil.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiffUtil.swift; sourceTree = "<group>"; };
 		DISCOVERY0123456789AB1B /* DiscoveryTools.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiscoveryTools.swift; sourceTree = "<group>"; };
 		F6F41BFCEF3C81A6A0A64255 /* FileDescriptionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileDescriptionService.swift; sourceTree = "<group>"; };
-		VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionPreprocessorCache.swift; sourceTree = "<group>"; };
 		F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationArchiveService.swift; sourceTree = "<group>"; };
 		FC662244A7AAD92235CE193B /* ToolModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolModels.swift; sourceTree = "<group>"; };
 		FILELDGR012345678901234B /* FilesLedger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilesLedger.swift; sourceTree = "<group>"; };
@@ -143,6 +141,7 @@
 		LSPLANG000123456789AB1B /* LSPLanguages.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LSPLanguages.swift; sourceTree = "<group>"; };
 		LSPREGISTRY0123456789A1B /* LSPRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LSPRegistry.swift; sourceTree = "<group>"; };
 		LSPTYPES00123456789AB1B /* LSPTypes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LSPTypes.swift; sourceTree = "<group>"; };
+		MAINVIEW0123456789ABCD1B /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		MCPCLIENT0123456789AB1B /* MCPClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
 		MCPFRAME00123456789AB1B /* MCPFraming.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPFraming.swift; sourceTree = "<group>"; };
 		MCPREGISTRY0123456789A1B /* MCPRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPRegistry.swift; sourceTree = "<group>"; };
@@ -164,6 +163,7 @@
 		TODOSTORE0123456789ABCD1B /* TodoStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TodoStore.swift; sourceTree = "<group>"; };
 		TOOLEXECFS0123456789AB1B /* ToolExecutor+Filesystem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ToolExecutor+Filesystem.swift"; sourceTree = "<group>"; };
 		USERAGNTL0123456789AB1B /* UserAgentLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserAgentLoader.swift; sourceTree = "<group>"; };
+		VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionPreprocessorCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
