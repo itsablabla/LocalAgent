@@ -3392,12 +3392,20 @@ class ConversationManager: ObservableObject {
         if prunedToolCount > 0 {
             // Persist to self.messages (indices correspond since no mutations during the loop)
             for i in 0..<min(messagesForLLM.count, messages.count) {
-                if messagesForLLM[i].id == messages[i].id
-                    && messagesForLLM[i].toolInteractions.isEmpty
-                    && !messages[i].toolInteractions.isEmpty {
+                guard messagesForLLM[i].id == messages[i].id else { continue }
+                let didPruneTools = messagesForLLM[i].toolInteractions.isEmpty && !messages[i].toolInteractions.isEmpty
+                let didPruneReasoning = messagesForLLM[i].assistantReasoning == nil
+                    && messagesForLLM[i].assistantReasoningDetails == nil
+                    && (messages[i].assistantReasoning != nil || messages[i].assistantReasoningDetails != nil)
+                if didPruneTools {
                     messages[i].compactToolLog = messagesForLLM[i].compactToolLog
                     messages[i].toolInteractions = []
                     messages[i].measuredToolTokens = nil
+                    messages[i].measuredTokens = messagesForLLM[i].measuredTokens
+                }
+                if didPruneReasoning {
+                    messages[i].assistantReasoning = nil
+                    messages[i].assistantReasoningDetails = nil
                     messages[i].measuredTokens = messagesForLLM[i].measuredTokens
                 }
             }
