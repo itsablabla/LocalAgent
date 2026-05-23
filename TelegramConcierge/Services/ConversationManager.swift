@@ -2735,6 +2735,18 @@ class ConversationManager: ObservableObject {
         return toolInteractionTokens(message.toolInteractions, isLMStudio: isLMStudio)
     }
 
+    private func reasoningTokensForMessage(_ message: Message) -> Int {
+        let encoder = JSONEncoder()
+        var tokens = 0
+        if let r = message.assistantReasoning, let data = try? encoder.encode(r) {
+            tokens += max(data.count / 4, 1)
+        }
+        if let rd = message.assistantReasoningDetails, let data = try? encoder.encode(rd) {
+            tokens += max(data.count / 4, 1)
+        }
+        return tokens
+    }
+
     /// Estimated token savings from pruning a message's inline media to text hints.
     /// Uses measured total tokens when available to derive actual media cost;
     /// falls back to 1450 tokens/file estimate.
@@ -2794,8 +2806,10 @@ class ConversationManager: ObservableObject {
             pruningBoundary = i + 1
             guard i != protectedIndex else { continue }
 
-            if sourceMessages[i].role == .assistant && !sourceMessages[i].toolInteractions.isEmpty {
-                let savedTokens = toolTokensForMessage(sourceMessages[i], isLMStudio: providerIsLMStudio)
+            let hasTools = !sourceMessages[i].toolInteractions.isEmpty
+            let hasReasoning = sourceMessages[i].assistantReasoning != nil || sourceMessages[i].assistantReasoningDetails != nil
+            if sourceMessages[i].role == .assistant && (hasTools || hasReasoning) {
+                let savedTokens = toolTokensForMessage(sourceMessages[i], isLMStudio: providerIsLMStudio) + reasoningTokensForMessage(sourceMessages[i])
                 actions.append(.toolInteractions(index: i, savedTokens: savedTokens))
                 totalTokens -= savedTokens
             }
@@ -2887,6 +2901,8 @@ class ConversationManager: ObservableObject {
                 }
                 targetMessages[index].toolInteractions = []
                 targetMessages[index].measuredToolTokens = nil
+                targetMessages[index].assistantReasoning = nil
+                targetMessages[index].assistantReasoningDetails = nil
                 if let m = targetMessages[index].measuredTokens {
                     targetMessages[index].measuredTokens = max(m - savedTokens, 0)
                 }
