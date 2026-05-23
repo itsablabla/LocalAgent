@@ -623,13 +623,23 @@ actor ToolExecutor {
                 return #"{"error":"Reminder datetime must be in the future"}"#
             }
 
-            if let recurrenceRaw = args.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !recurrenceRaw.isEmpty,
-               parseRecurrenceType(recurrenceRaw) == nil {
-                return #"{"error":"Invalid recurrence. Use daily, weekly, monthly, every_X_minutes, or every_X_hours."}"#
+            // days_of_week takes precedence over recurrence string
+            let recurrence: RecurrenceType?
+            if let daysArray = args.daysOfWeek, !daysArray.isEmpty {
+                let validDays = Set(daysArray.filter { $0 >= 1 && $0 <= 7 })
+                guard !validDays.isEmpty else {
+                    return #"{"error":"days_of_week values must be 1-7 (1=Monday, 7=Sunday)"}"#
+                }
+                recurrence = .daysOfWeek(days: validDays)
+            } else if let recurrenceRaw = args.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !recurrenceRaw.isEmpty {
+                guard let parsed = parseRecurrenceType(recurrenceRaw) else {
+                    return #"{"error":"Invalid recurrence. Use daily, weekly, weekdays, weekends, monthly, every_X_minutes, or every_X_hours."}"#
+                }
+                recurrence = parsed
+            } else {
+                recurrence = nil
             }
-
-            let recurrence = parseRecurrenceType(args.recurrence)
 
             let reminder = await ReminderService.shared.addReminder(triggerDate: date, prompt: prompt, recurrence: recurrence)
             let dateFormatter = DateFormatter()
@@ -704,7 +714,7 @@ actor ToolExecutor {
                 if let recurrenceRaw = args.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !recurrenceRaw.isEmpty,
                    parseRecurrenceType(recurrenceRaw) == nil {
-                    return #"{"error":"Invalid recurrence filter for delete_recurring. Use daily, weekly, monthly, every_X_minutes, or every_X_hours."}"#
+                    return #"{"error":"Invalid recurrence filter for delete_recurring. Use daily, weekly, weekdays, weekends, monthly, every_X_minutes, or every_X_hours."}"#
                 }
 
                 let recurrenceFilter = parseRecurrenceType(args.recurrence)
@@ -807,6 +817,10 @@ actor ToolExecutor {
             return .weekly
         case "monthly":
             return .monthly
+        case "weekdays":
+            return .daysOfWeek(days: [1, 2, 3, 4, 5])
+        case "weekends":
+            return .daysOfWeek(days: [6, 7])
         default:
             if rawValue.hasPrefix("every_") && rawValue.hasSuffix("_minutes") {
                 let numberPart = rawValue
@@ -1118,16 +1132,18 @@ struct ManageRemindersArguments: Codable {
     let triggerDatetime: String?
     let prompt: String?
     let recurrence: String?
+    let daysOfWeek: [Int]?
     let reminderId: String?
     let reminderIds: [String]?
     let deleteAll: Bool?
     let deleteRecurring: Bool?
-    
+
     enum CodingKeys: String, CodingKey {
         case action
         case triggerDatetime = "trigger_datetime"
         case prompt
         case recurrence
+        case daysOfWeek = "days_of_week"
         case reminderId = "reminder_id"
         case reminderIds = "reminder_ids"
         case deleteAll = "delete_all"
@@ -1143,6 +1159,18 @@ struct ManageRemindersArguments: Codable {
         reminderId = try container.decodeIfPresent(String.self, forKey: .reminderId)
         deleteAll = try container.decodeIfPresent(Bool.self, forKey: .deleteAll)
         deleteRecurring = try container.decodeIfPresent(Bool.self, forKey: .deleteRecurring)
+
+        // Parse days_of_week — accept array of ints or JSON string
+        if let array = try? container.decodeIfPresent([Int].self, forKey: .daysOfWeek) {
+            daysOfWeek = array
+        } else if let raw = (try? container.decodeIfPresent(String.self, forKey: .daysOfWeek))?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty,
+                  let data = raw.data(using: .utf8),
+                  let parsed = try? JSONDecoder().decode([Int].self, from: data) {
+            daysOfWeek = parsed
+        } else {
+            daysOfWeek = nil
+        }
 
         if let array = try? container.decodeIfPresent([String].self, forKey: .reminderIds) {
             reminderIds = array

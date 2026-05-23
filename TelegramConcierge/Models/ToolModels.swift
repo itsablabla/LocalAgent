@@ -535,7 +535,12 @@ enum AvailableTools {
                     ),
                     "recurrence": ParameterProperty(
                         type: "string",
-                        description: "Optional for action='set'. 'daily', 'weekly', 'monthly', 'every_X_minutes', or 'every_X_hours'. Also optional for action='delete' when delete_recurring=true to filter which recurring reminders to delete."
+                        description: "Optional for action='set'. 'daily', 'weekly', 'monthly', 'weekdays', 'weekends', 'every_X_minutes', or 'every_X_hours'. Also optional for action='delete' when delete_recurring=true to filter which recurring reminders to delete."
+                    ),
+                    "days_of_week": ParameterProperty(
+                        type: "array",
+                        description: "Optional for action='set'. Specific days of the week to repeat on (ISO 8601: 1=Monday, 2=Tuesday, ..., 7=Sunday). Example: [1,3,5] for Mon/Wed/Fri. Overrides recurrence when provided.",
+                        items: ArrayItemsSchema(type: "integer")
                     ),
                     "reminder_id": ParameterProperty(
                         type: "string",
