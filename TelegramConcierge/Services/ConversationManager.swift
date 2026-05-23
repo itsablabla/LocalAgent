@@ -88,6 +88,8 @@ class ConversationManager: ObservableObject {
 
     private struct ToolAwareResponse {
         let finalText: String
+        let finalReasoning: JSONValue?
+        let finalReasoningDetails: JSONValue?
         let compactToolLog: String?
         let toolInteractions: [ToolInteraction]
         let accessedProjects: [String]?
@@ -109,6 +111,36 @@ class ConversationManager: ObservableObject {
         let generatedFilePaths: [String]
         /// Subagent session events that occurred during this turn.
         var subagentSessionEvents: [SubagentSessionEvent]
+
+        init(
+            finalText: String,
+            finalReasoning: JSONValue? = nil,
+            finalReasoningDetails: JSONValue? = nil,
+            compactToolLog: String?,
+            toolInteractions: [ToolInteraction],
+            accessedProjects: [String]?,
+            measuredToolTokens: Int?,
+            measuredUserTokens: Int?,
+            measuredAssistantTokens: Int?,
+            measuredAssistantCompletionTokens: Int?,
+            editedFilePaths: [String],
+            generatedFilePaths: [String],
+            subagentSessionEvents: [SubagentSessionEvent]
+        ) {
+            self.finalText = finalText
+            self.finalReasoning = finalReasoning
+            self.finalReasoningDetails = finalReasoningDetails
+            self.compactToolLog = compactToolLog
+            self.toolInteractions = toolInteractions
+            self.accessedProjects = accessedProjects
+            self.measuredToolTokens = measuredToolTokens
+            self.measuredUserTokens = measuredUserTokens
+            self.measuredAssistantTokens = measuredAssistantTokens
+            self.measuredAssistantCompletionTokens = measuredAssistantCompletionTokens
+            self.editedFilePaths = editedFilePaths
+            self.generatedFilePaths = generatedFilePaths
+            self.subagentSessionEvents = subagentSessionEvents
+        }
     }
 
     private enum PruneAction {
@@ -905,6 +937,8 @@ class ConversationManager: ObservableObject {
             let assistantMessage = Message(
                 role: .assistant,
                 content: finalResponse,
+                assistantReasoning: response.finalReasoning,
+                assistantReasoningDetails: response.finalReasoningDetails,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -1864,7 +1898,7 @@ class ConversationManager: ObservableObject {
             }
             
             switch response {
-            case .text(let content, let promptTokens, let completionTokens, _):
+            case .text(let content, let promptTokens, let completionTokens, _, let reasoning, let reasoningDetails):
                 // LLM decided to respond with text - we're done
                 if let tokens = promptTokens {
                     lastPromptTokens = tokens
@@ -1890,6 +1924,8 @@ class ConversationManager: ObservableObject {
                 let changed = await computeLedgerDiff()
                 return ToolAwareResponse(
                     finalText: content,
+                    finalReasoning: reasoning,
+                    finalReasoningDetails: reasoningDetails,
                     compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                     toolInteractions: toolInteractions,
                     accessedProjects: accessedProjects,
@@ -2178,7 +2214,7 @@ class ConversationManager: ObservableObject {
         let finalPromptTokens: Int?
         let finalCompTokens: Int?
         switch finalResponse {
-        case .text(_, let pt, let ct, _):
+        case .text(_, let pt, let ct, _, _, _):
             finalPromptTokens = pt
             finalCompTokens = ct
         case .toolCalls(_, _, let pt, let ct, _):
@@ -2209,9 +2245,11 @@ class ConversationManager: ObservableObject {
         }()
 
         switch finalResponse {
-        case .text(let content, _, _, _):
+        case .text(let content, _, _, _, let reasoning, let reasoningDetails):
             return ToolAwareResponse(
                 finalText: content,
+                finalReasoning: reasoning,
+                finalReasoningDetails: reasoningDetails,
                 compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                 toolInteractions: toolInteractions,
                 accessedProjects: accessedProjects,
@@ -2313,7 +2351,7 @@ class ConversationManager: ObservableObject {
     
     private func spendUSD(from response: LLMResponse) -> Double? {
         switch response {
-        case .text(_, _, _, let spendUSD):
+        case .text(_, _, _, let spendUSD, _, _):
             return spendUSD
         case .toolCalls(_, _, _, _, let spendUSD):
             return spendUSD
@@ -2981,7 +3019,7 @@ class ConversationManager: ObservableObject {
                 deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {
-            case .text(let content, _, _, _):
+            case .text(let content, _, _, _, _, _):
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 DebugTelemetry.log(
                     .info,
@@ -4094,6 +4132,8 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
+                    assistantReasoning: response.finalReasoning,
+                    assistantReasoningDetails: response.finalReasoningDetails,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4158,6 +4198,8 @@ class ConversationManager: ObservableObject {
             let assistantMessage = Message(
                 role: .assistant,
                 content: finalResponse,
+                assistantReasoning: response.finalReasoning,
+                assistantReasoningDetails: response.finalReasoningDetails,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -4255,6 +4297,8 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
+                    assistantReasoning: response.finalReasoning,
+                    assistantReasoningDetails: response.finalReasoningDetails,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4356,6 +4400,8 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
+                    assistantReasoning: response.finalReasoning,
+                    assistantReasoningDetails: response.finalReasoningDetails,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4472,6 +4518,8 @@ class ConversationManager: ObservableObject {
                     let assistantMessage = Message(
                         role: .assistant,
                         content: finalResponse,
+                        assistantReasoning: response.finalReasoning,
+                        assistantReasoningDetails: response.finalReasoningDetails,
                         downloadedDocumentFileNames: downloadedFilenames,
                         editedFilePaths: response.editedFilePaths,
                         generatedFilePaths: response.generatedFilePaths,

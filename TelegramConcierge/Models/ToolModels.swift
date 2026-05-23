@@ -450,7 +450,7 @@ struct WebSearchResult: Codable {
 // MARK: - LLM Response Types
 
 enum LLMResponse {
-    case text(String, promptTokens: Int?, completionTokens: Int?, spendUSD: Double?)
+    case text(String, promptTokens: Int?, completionTokens: Int?, spendUSD: Double?, reasoning: JSONValue?, reasoningDetails: JSONValue?)
     case toolCalls(assistantMessage: AssistantToolCallMessage, calls: [ToolCall], promptTokens: Int?, completionTokens: Int?, spendUSD: Double?)
 }
 
