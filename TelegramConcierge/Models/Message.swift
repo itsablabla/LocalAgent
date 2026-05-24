@@ -32,9 +32,6 @@ struct Message: Identifiable, Codable, Equatable {
     let id: UUID
     let role: Role
     var content: String
-    var assistantReasoning: JSONValue?
-    var assistantReasoningDetails: JSONValue?
-    var assistantReasoningTokens: Int?
     let timestamp: Date
     
     // Multiple attachments support (primary storage)
@@ -122,18 +119,6 @@ struct Message: Identifiable, Codable, Equatable {
         if let prunedContextSummary, !prunedContextSummary.isEmpty {
             tokens += prunedContextSummary.count / 4
         }
-        if assistantReasoning != nil || assistantReasoningDetails != nil {
-            if let assistantReasoningTokens {
-                tokens += assistantReasoningTokens
-            } else {
-                if let assistantReasoning {
-                    tokens += Self.estimatedTokens(for: assistantReasoning)
-                }
-                if let assistantReasoningDetails {
-                    tokens += Self.estimatedTokens(for: assistantReasoningDetails)
-                }
-            }
-        }
         let mediaTokensPerFile = mediaPruned ? 50 : 1500
         tokens += mediaFileCount * mediaTokensPerFile
         if let measuredTools = measuredToolTokens {
@@ -179,9 +164,6 @@ struct Message: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         role: Role,
         content: String,
-        assistantReasoning: JSONValue? = nil,
-        assistantReasoningDetails: JSONValue? = nil,
-        assistantReasoningTokens: Int? = nil,
         timestamp: Date = Date(),
         imageFileNames: [String] = [],
         documentFileNames: [String] = [],
@@ -206,9 +188,6 @@ struct Message: Identifiable, Codable, Equatable {
         self.id = id
         self.role = role
         self.content = content
-        self.assistantReasoning = assistantReasoning
-        self.assistantReasoningDetails = assistantReasoningDetails
-        self.assistantReasoningTokens = assistantReasoningTokens
         self.timestamp = timestamp
         self.imageFileNames = imageFileNames
         self.documentFileNames = documentFileNames
@@ -234,7 +213,7 @@ struct Message: Identifiable, Codable, Equatable {
     // MARK: - Codable (with backward compatibility)
     
     enum CodingKeys: String, CodingKey {
-        case id, role, content, assistantReasoning, assistantReasoningDetails, assistantReasoningTokens, timestamp
+        case id, role, content, timestamp
         // New array fields
         case imageFileNames, documentFileNames, imageFileSizes, documentFileSizes
         case referencedImageFileNames, referencedDocumentFileNames
@@ -252,9 +231,6 @@ struct Message: Identifiable, Codable, Equatable {
         id = try container.decode(UUID.self, forKey: .id)
         role = try container.decode(Role.self, forKey: .role)
         content = try container.decode(String.self, forKey: .content)
-        assistantReasoning = try? container.decodeIfPresent(JSONValue.self, forKey: .assistantReasoning)
-        assistantReasoningDetails = try? container.decodeIfPresent(JSONValue.self, forKey: .assistantReasoningDetails)
-        assistantReasoningTokens = try? container.decodeIfPresent(Int.self, forKey: .assistantReasoningTokens)
         timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date()
         
         // Try new array format first, fall back to legacy single-value format
@@ -357,9 +333,6 @@ struct Message: Identifiable, Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(role, forKey: .role)
         try container.encode(content, forKey: .content)
-        try container.encodeIfPresent(assistantReasoning, forKey: .assistantReasoning)
-        try container.encodeIfPresent(assistantReasoningDetails, forKey: .assistantReasoningDetails)
-        try container.encodeIfPresent(assistantReasoningTokens, forKey: .assistantReasoningTokens)
         try container.encode(timestamp, forKey: .timestamp)
         
         // Always encode in new array format
@@ -403,9 +376,6 @@ struct Message: Identifiable, Codable, Equatable {
         lhs.id == rhs.id &&
         lhs.role == rhs.role &&
         lhs.content == rhs.content &&
-        jsonValueEquatable(lhs.assistantReasoning, rhs.assistantReasoning) &&
-        jsonValueEquatable(lhs.assistantReasoningDetails, rhs.assistantReasoningDetails) &&
-        lhs.assistantReasoningTokens == rhs.assistantReasoningTokens &&
         lhs.timestamp == rhs.timestamp &&
         lhs.imageFileNames == rhs.imageFileNames &&
         lhs.documentFileNames == rhs.documentFileNames &&
@@ -420,20 +390,5 @@ struct Message: Identifiable, Codable, Equatable {
         lhs.accessedProjectIds == rhs.accessedProjectIds &&
         lhs.prunedContextSummary == rhs.prunedContextSummary &&
         lhs.kind == rhs.kind
-    }
-
-    private static func jsonValueEquatable(_ lhs: JSONValue?, _ rhs: JSONValue?) -> Bool {
-        let encoder = JSONEncoder()
-        let lhsData = try? lhs.map { try encoder.encode($0) }
-        let rhsData = try? rhs.map { try encoder.encode($0) }
-        return lhsData == rhsData
-    }
-
-    private static func estimatedTokens(for value: JSONValue) -> Int {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(value) {
-            return max(data.count / 4, 1)
-        }
-        return 1
     }
 }

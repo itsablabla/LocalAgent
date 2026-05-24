@@ -558,15 +558,12 @@ actor OpenRouterService {
             lines.append("Subagent session events: \(events.joined(separator: "; "))")
         }
 
-        if let rawSummary = message.prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawSummary.isEmpty {
-            let summary = stripInlineReasoningBlocks(from: rawSummary)
-            if !summary.isEmpty {
-                lines.append("""
-                Pruned context summary for the preceding turn(s):
-                \(summary)
-                """)
-            }
+        if let summary = message.prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            lines.append("""
+            Pruned context summary for the preceding turn(s):
+            \(summary)
+            """)
         }
 
         guard !lines.isEmpty else { return nil }
@@ -771,7 +768,6 @@ actor OpenRouterService {
         modelOverride: String? = nil,
         providerOverride: [String]? = nil,
         reasoningEffortOverride: String? = nil,
-        preserveReasoning: Bool = true,
         deferredMCPSummaries: [(name: String, description: String, toolCount: Int)]? = nil
     ) async throws -> LLMResponse {
         guard isLMStudio || !apiKey.isEmpty else {
@@ -1226,12 +1222,7 @@ actor OpenRouterService {
                 textContent = rolePrefix + textContent
                 contentParts.append(.text(textContent))
 
-                apiMessages.append(OpenRouterAPIMessage(
-                    role: role,
-                    content: .parts(contentParts),
-                    reasoning: role == "assistant" ? message.assistantReasoning : nil,
-                    reasoningDetails: role == "assistant" ? message.assistantReasoningDetails : nil
-                ))
+                apiMessages.append(OpenRouterAPIMessage(role: role, content: .parts(contentParts)))
             } else {
                 // Standard text message. Internal per-turn metadata is injected
                 // separately as a system note so the model does not mistake it
@@ -1245,12 +1236,7 @@ actor OpenRouterService {
                 // still applies to both to mark day boundaries consistently.
                 let rolePrefix = (message.role == .user) ? (dateHeader + timePrefix) : dateHeader
                 textContent = rolePrefix + textContent
-                apiMessages.append(OpenRouterAPIMessage(
-                    role: role,
-                    content: .text(textContent),
-                    reasoning: role == "assistant" ? message.assistantReasoning : nil,
-                    reasoningDetails: role == "assistant" ? message.assistantReasoningDetails : nil
-                ))
+                apiMessages.append(OpenRouterAPIMessage(role: role, content: .text(textContent)))
             }
 
             if let metadataNote = await historyMetadataNote(for: message) {
@@ -1490,7 +1476,6 @@ actor OpenRouterService {
         // Extract usage info for token tracking
         let promptTokens = decoded.usage?.promptTokens
         let completionTokens = decoded.usage?.completionTokens
-        let reasoningTokens = decoded.usage?.completionTokensDetails?.reasoningTokens
         let cachedTokens = decoded.usage?.promptTokensDetails?.cachedTokens ?? 0
         let directCost = decoded.usage?.cost?.value
         let upstreamInferenceCost = decoded.usage?.costDetails?.upstreamInferenceCost?.value
@@ -1515,9 +1500,7 @@ actor OpenRouterService {
                     content: choice.message.content,
                     toolCalls: toolCalls,
                     reasoning: choice.message.reasoning,
-                    reasoningDetails: choice.message.reasoningDetails,
-                    measuredCompletionTokens: completionTokens,
-                    measuredReasoningTokens: reasoningTokens
+                    reasoningDetails: choice.message.reasoningDetails
                 ),
                 calls: toolCalls,
                 promptTokens: promptTokens,
@@ -1531,46 +1514,10 @@ actor OpenRouterService {
             throw OpenRouterError.noContent
         }
 
-        let responseContent = preserveReasoning ? content : stripInlineReasoningBlocks(from: content)
-
-        return .text(
-            responseContent,
-            promptTokens: promptTokens,
-            completionTokens: completionTokens,
-            spendUSD: callSpendUSD,
-            reasoning: preserveReasoning ? choice.message.reasoning : nil,
-            reasoningDetails: preserveReasoning ? choice.message.reasoningDetails : nil,
-            reasoningTokens: preserveReasoning ? reasoningTokens : nil
-        )
+        return .text(content, promptTokens: promptTokens, completionTokens: completionTokens, spendUSD: callSpendUSD)
     }
     
     // MARK: - Context Snapshot
-
-    private func stripInlineReasoningBlocks(from text: String) -> String {
-        var cleaned = text
-        if let regex = try? NSRegularExpression(
-            pattern: #"(?is)<think\b[^>]*>.*?</think>"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        if let unclosedRegex = try? NSRegularExpression(
-            pattern: #"(?is)<think\b[^>]*>.*$"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = unclosedRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        if let tagRegex = try? NSRegularExpression(
-            pattern: #"(?is)</?think\b[^>]*>"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = tagRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     private func snapshotPreview(_ text: String, maxLength: Int) -> String {
         text.count > maxLength ? String(text.prefix(maxLength)) + "..." : text
@@ -1749,10 +1696,6 @@ actor OpenRouterService {
 
             // Message content
             let contentPreview = message.content
-            if let reasoning = message.assistantReasoning {
-                let preview = snapshotPreview(reasoning, maxLength: 300)
-                out += "  [final reasoning: \(preview)]\n"
-            }
             out += "[\(i)] \(role) (\(time)): \(contentPreview)\n"
 
             // Attachments
@@ -2631,11 +2574,11 @@ struct OpenRouterAPIMessage: Codable {
     
     enum CodingKeys: String, CodingKey {
         case role
-        case reasoning
-        case reasoningDetails = "reasoning_details"
         case content
         case toolCalls = "tool_calls"
         case toolCallId = "tool_call_id"
+        case reasoning
+        case reasoningDetails = "reasoning_details"
     }
     
     init(
@@ -2794,7 +2737,6 @@ struct OpenRouterUsage: Codable {
     let completionTokens: Int?
     let totalTokens: Int?
     let promptTokensDetails: PromptTokensDetails?
-    let completionTokensDetails: CompletionTokensDetails?
     let cost: LossyDouble?
     let costDetails: OpenRouterCostDetails?
     
@@ -2803,7 +2745,6 @@ struct OpenRouterUsage: Codable {
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
         case promptTokensDetails = "prompt_tokens_details"
-        case completionTokensDetails = "completion_tokens_details"
         case cost
         case costDetails = "cost_details"
     }
@@ -2870,18 +2811,6 @@ struct PromptTokensDetails: Codable {
     }
 }
 
-struct CompletionTokensDetails: Codable {
-    let reasoningTokens: Int?
-    let audioTokens: Int?
-    let imageTokens: Int?
-    
-    enum CodingKeys: String, CodingKey {
-        case reasoningTokens = "reasoning_tokens"
-        case audioTokens = "audio_tokens"
-        case imageTokens = "image_tokens"
-    }
-}
-
 struct OpenRouterChoice: Codable {
     let message: OpenRouterResponseMessage
 }
@@ -2898,30 +2827,7 @@ struct OpenRouterResponseMessage: Codable {
         case content
         case toolCalls = "tool_calls"
         case reasoning
-        case reasoningContent = "reasoning_content"
         case reasoningDetails = "reasoning_details"
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        role = try container.decode(String.self, forKey: .role)
-        content = try container.decodeIfPresent(String.self, forKey: .content)
-        toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
-        if let parsedReasoning = try container.decodeIfPresent(JSONValue.self, forKey: .reasoning) {
-            reasoning = parsedReasoning
-        } else {
-            reasoning = try container.decodeIfPresent(JSONValue.self, forKey: .reasoningContent)
-        }
-        reasoningDetails = try container.decodeIfPresent(JSONValue.self, forKey: .reasoningDetails)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(role, forKey: .role)
-        try container.encodeIfPresent(content, forKey: .content)
-        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
-        try container.encodeIfPresent(reasoning, forKey: .reasoning)
-        try container.encodeIfPresent(reasoningDetails, forKey: .reasoningDetails)
     }
 }
 

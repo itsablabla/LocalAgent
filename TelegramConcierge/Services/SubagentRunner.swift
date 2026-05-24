@@ -254,7 +254,7 @@ actor SubagentRunner {
                 markProgress()  // LLM responded — subagent is alive
 
                 switch response {
-                case .text(let content, let promptTk, _, let spend, _, _, _):
+                case .text(let content, let promptTk, _, let spend):
                     if let spend { totalSpendUSD += spend }
                     if let pt = promptTk { lastPromptTokens = pt }
                     finalText = content
@@ -375,7 +375,7 @@ actor SubagentRunner {
                 markProgress()
 
                 switch forceResponse {
-                case .text(let content, let promptTk, _, let spend, _, _, _):
+                case .text(let content, let promptTk, _, let spend):
                     if let spend { totalSpendUSD += spend }
                     if let pt = promptTk { lastPromptTokens = pt }
                     finalText = content
@@ -493,7 +493,7 @@ actor SubagentRunner {
             )
 
             switch response {
-            case .text(let content, _, _, _, _, _, _):
+            case .text(let content, _, _, _):
                 return "[SESSION HISTORY SUMMARY — Earlier work in this session was summarized to free context space. Details below are from the evicted portion.]\n\n\(content)"
             case .toolCalls:
                 // Shouldn't happen with tools=[], but handle gracefully.

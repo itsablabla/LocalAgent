@@ -88,9 +88,6 @@ class ConversationManager: ObservableObject {
 
     private struct ToolAwareResponse {
         let finalText: String
-        let finalReasoning: JSONValue?
-        let finalReasoningDetails: JSONValue?
-        let finalReasoningTokens: Int?
         let compactToolLog: String?
         let toolInteractions: [ToolInteraction]
         let accessedProjects: [String]?
@@ -112,38 +109,6 @@ class ConversationManager: ObservableObject {
         let generatedFilePaths: [String]
         /// Subagent session events that occurred during this turn.
         var subagentSessionEvents: [SubagentSessionEvent]
-
-        init(
-            finalText: String,
-            finalReasoning: JSONValue? = nil,
-            finalReasoningDetails: JSONValue? = nil,
-            finalReasoningTokens: Int? = nil,
-            compactToolLog: String?,
-            toolInteractions: [ToolInteraction],
-            accessedProjects: [String]?,
-            measuredToolTokens: Int?,
-            measuredUserTokens: Int?,
-            measuredAssistantTokens: Int?,
-            measuredAssistantCompletionTokens: Int?,
-            editedFilePaths: [String],
-            generatedFilePaths: [String],
-            subagentSessionEvents: [SubagentSessionEvent]
-        ) {
-            self.finalText = finalText
-            self.finalReasoning = finalReasoning
-            self.finalReasoningDetails = finalReasoningDetails
-            self.finalReasoningTokens = finalReasoningTokens
-            self.compactToolLog = compactToolLog
-            self.toolInteractions = toolInteractions
-            self.accessedProjects = accessedProjects
-            self.measuredToolTokens = measuredToolTokens
-            self.measuredUserTokens = measuredUserTokens
-            self.measuredAssistantTokens = measuredAssistantTokens
-            self.measuredAssistantCompletionTokens = measuredAssistantCompletionTokens
-            self.editedFilePaths = editedFilePaths
-            self.generatedFilePaths = generatedFilePaths
-            self.subagentSessionEvents = subagentSessionEvents
-        }
     }
 
     private enum PruneAction {
@@ -940,9 +905,6 @@ class ConversationManager: ObservableObject {
             let assistantMessage = Message(
                 role: .assistant,
                 content: finalResponse,
-                assistantReasoning: response.finalReasoning,
-                assistantReasoningDetails: response.finalReasoningDetails,
-                assistantReasoningTokens: response.finalReasoningTokens,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -1325,18 +1287,14 @@ class ConversationManager: ObservableObject {
             for message in messages {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             print("[ConversationManager] Manual prune using estimated tokens: \(totalTokens)")
         }
 
         var prunableToolTokens = 0
         for (i, message) in messages.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
         }
 
@@ -1386,9 +1344,8 @@ class ConversationManager: ObservableObject {
             deferredMCPSummaries: deferredSummaries
         ),
            let anchor = pruneSummaryAnchorIndex(plan: plan, compressedIndices: compressedIndices, messageCount: messages.count) {
-            let cleanSummary = stripInlineReasoningBlocks(from: summary)
-            appendPrunedContextSummary(cleanSummary, toMessageAt: anchor)
-            totalTokens += max(cleanSummary.count / 4, 1)
+            appendPrunedContextSummary(summary, toMessageAt: anchor)
+            totalTokens += max(summary.count / 4, 1)
         }
 
         for action in plan.actions {
@@ -1907,7 +1864,7 @@ class ConversationManager: ObservableObject {
             }
             
             switch response {
-            case .text(let content, let promptTokens, let completionTokens, _, let reasoning, let reasoningDetails, let reasoningTokens):
+            case .text(let content, let promptTokens, let completionTokens, _):
                 // LLM decided to respond with text - we're done
                 if let tokens = promptTokens {
                     lastPromptTokens = tokens
@@ -1933,9 +1890,6 @@ class ConversationManager: ObservableObject {
                 let changed = await computeLedgerDiff()
                 return ToolAwareResponse(
                     finalText: content,
-                    finalReasoning: reasoning,
-                    finalReasoningDetails: reasoningDetails,
-                    finalReasoningTokens: reasoningTokens,
                     compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                     toolInteractions: toolInteractions,
                     accessedProjects: accessedProjects,
@@ -2224,7 +2178,7 @@ class ConversationManager: ObservableObject {
         let finalPromptTokens: Int?
         let finalCompTokens: Int?
         switch finalResponse {
-        case .text(_, let pt, let ct, _, _, _, _):
+        case .text(_, let pt, let ct, _):
             finalPromptTokens = pt
             finalCompTokens = ct
         case .toolCalls(_, _, let pt, let ct, _):
@@ -2255,12 +2209,9 @@ class ConversationManager: ObservableObject {
         }()
 
         switch finalResponse {
-        case .text(let content, _, _, _, let reasoning, let reasoningDetails, let reasoningTokens):
+        case .text(let content, _, _, _):
             return ToolAwareResponse(
                 finalText: content,
-                finalReasoning: reasoning,
-                finalReasoningDetails: reasoningDetails,
-                finalReasoningTokens: reasoningTokens,
                 compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                 toolInteractions: toolInteractions,
                 accessedProjects: accessedProjects,
@@ -2362,7 +2313,7 @@ class ConversationManager: ObservableObject {
     
     private func spendUSD(from response: LLMResponse) -> Double? {
         switch response {
-        case .text(_, _, _, let spendUSD, _, _, _):
+        case .text(_, _, _, let spendUSD):
             return spendUSD
         case .toolCalls(_, _, _, _, let spendUSD):
             return spendUSD
@@ -2673,22 +2624,12 @@ class ConversationManager: ObservableObject {
         return tokens
     }
 
-    private func estimatedAssistantToolCallTokens(_ assistantMessage: AssistantToolCallMessage) -> Int {
-        if let measured = assistantMessage.measuredCompletionTokens, measured > 0 {
-            return measured
-        }
-
-        var tokens = (assistantMessage.content?.count ?? 0) / 4
-        for call in assistantMessage.toolCalls {
+    private func estimatedStoredToolInteractionTokens(_ interaction: ToolInteraction) -> Int {
+        var tokens = (interaction.assistantMessage.content?.count ?? 0) / 4
+        for call in interaction.assistantMessage.toolCalls {
             tokens += call.function.arguments.count / 4
             tokens += call.function.name.count / 4 + 20
         }
-        tokens += reasoningTokensForAssistantToolCall(assistantMessage)
-        return max(tokens, 1)
-    }
-
-    private func estimatedStoredToolInteractionTokens(_ interaction: ToolInteraction) -> Int {
-        var tokens = estimatedAssistantToolCallTokens(interaction.assistantMessage)
         for result in interaction.results {
             tokens += result.content.count / 4 + 20
         }
@@ -2756,46 +2697,6 @@ class ConversationManager: ObservableObject {
         return toolInteractionTokens(message.toolInteractions, isLMStudio: isLMStudio)
     }
 
-    private func reasoningTokensForMessage(_ message: Message) -> Int {
-        guard message.assistantReasoning != nil || message.assistantReasoningDetails != nil else {
-            return 0
-        }
-        if let measured = message.assistantReasoningTokens {
-            return measured
-        }
-
-        return estimatedReasoningTokens(
-            reasoning: message.assistantReasoning,
-            reasoningDetails: message.assistantReasoningDetails
-        )
-    }
-
-    private func reasoningTokensForAssistantToolCall(_ assistantMessage: AssistantToolCallMessage) -> Int {
-        guard assistantMessage.reasoning != nil || assistantMessage.reasoningDetails != nil else {
-            return 0
-        }
-        if let measured = assistantMessage.measuredReasoningTokens {
-            return measured
-        }
-
-        return estimatedReasoningTokens(
-            reasoning: assistantMessage.reasoning,
-            reasoningDetails: assistantMessage.reasoningDetails
-        )
-    }
-
-    private func estimatedReasoningTokens(reasoning: JSONValue?, reasoningDetails: JSONValue?) -> Int {
-        let encoder = JSONEncoder()
-        var tokens = 0
-        if let r = reasoning, let data = try? encoder.encode(r) {
-            tokens += max(data.count / 4, 1)
-        }
-        if let rd = reasoningDetails, let data = try? encoder.encode(rd) {
-            tokens += max(data.count / 4, 1)
-        }
-        return tokens
-    }
-
     /// Estimated token savings from pruning a message's inline media to text hints.
     /// Uses measured total tokens when available to derive actual media cost;
     /// falls back to 1450 tokens/file estimate.
@@ -2855,10 +2756,8 @@ class ConversationManager: ObservableObject {
             pruningBoundary = i + 1
             guard i != protectedIndex else { continue }
 
-            let hasTools = !sourceMessages[i].toolInteractions.isEmpty
-            let hasReasoning = sourceMessages[i].assistantReasoning != nil || sourceMessages[i].assistantReasoningDetails != nil
-            if sourceMessages[i].role == .assistant && (hasTools || hasReasoning) {
-                let savedTokens = toolTokensForMessage(sourceMessages[i], isLMStudio: providerIsLMStudio) + reasoningTokensForMessage(sourceMessages[i])
+            if sourceMessages[i].role == .assistant && !sourceMessages[i].toolInteractions.isEmpty {
+                let savedTokens = toolTokensForMessage(sourceMessages[i], isLMStudio: providerIsLMStudio)
                 actions.append(.toolInteractions(index: i, savedTokens: savedTokens))
                 totalTokens -= savedTokens
             }
@@ -2891,7 +2790,7 @@ class ConversationManager: ObservableObject {
     }
 
     private func appendPrunedContextSummary(_ summary: String, toMessageAt index: Int) {
-        let trimmed = stripInlineReasoningBlocks(from: summary)
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, messages.indices.contains(index) else { return }
 
         if let existing = messages[index].prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2900,32 +2799,6 @@ class ConversationManager: ObservableObject {
         } else {
             messages[index].prunedContextSummary = trimmed
         }
-    }
-
-    private func stripInlineReasoningBlocks(from text: String) -> String {
-        var cleaned = text
-        if let regex = try? NSRegularExpression(
-            pattern: #"(?is)<think\b[^>]*>.*?</think>"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        if let unclosedRegex = try? NSRegularExpression(
-            pattern: #"(?is)<think\b[^>]*>.*$"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = unclosedRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        if let tagRegex = try? NSRegularExpression(
-            pattern: #"(?is)</?think\b[^>]*>"#,
-            options: []
-        ) {
-            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-            cleaned = tagRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func pruneSummaryAnchorIndex(plan: PrunePlan, compressedIndices: [Int], messageCount: Int) -> Int? {
@@ -2976,9 +2849,6 @@ class ConversationManager: ObservableObject {
                 }
                 targetMessages[index].toolInteractions = []
                 targetMessages[index].measuredToolTokens = nil
-                targetMessages[index].assistantReasoning = nil
-                targetMessages[index].assistantReasoningDetails = nil
-                targetMessages[index].assistantReasoningTokens = nil
                 if let m = targetMessages[index].measuredTokens {
                     targetMessages[index].measuredTokens = max(m - savedTokens, 0)
                 }
@@ -3077,7 +2947,6 @@ class ConversationManager: ObservableObject {
         - tool calls, tool outputs, and assistant reasoning for listed tool-interaction turns
         - media/file relevance for listed media turns
         - useful facts from listed synthetic message bodies
-        Summarize the source turn reasoning when it matters for continuity, but do not include your own chain-of-thought, draft text, hidden scratch work, or text inside <think> tags in the output.
         Do not summarize unlisted turns or stable visible chat text that is not being pruned.
         Keep durable details: user goals, decisions, findings, errors, commands, file paths, filenames, IDs, URLs, tool outcomes, and unresolved next steps. This summary's purpose is to let you continue to work without missing important information once this content is pruned. View it as a baton exchange to a future version of you that will not see this pruned content.
         Omit routine noise, duplicated logs, and low-value progress chatter.
@@ -3100,7 +2969,7 @@ class ConversationManager: ObservableObject {
                 messages: sourceMessages,
                 imagesDirectory: imagesDirectory,
                 documentsDirectory: documentsDirectory,
-                tools: nil,
+                tools: tools,
                 toolResultMessages: currentTurnInteractions,
                 calendarContext: calendarContext,
                 emailContext: emailContext,
@@ -3109,11 +2978,10 @@ class ConversationManager: ObservableObject {
                 currentUserMessageId: currentUserMessageId,
                 turnStartDate: turnStartDate,
                 tailUserMessage: tail,
-                preserveReasoning: false,
                 deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {
-            case .text(let content, _, _, _, _, _, _):
+            case .text(let content, _, _, _):
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 DebugTelemetry.log(
                     .info,
@@ -3208,7 +3076,6 @@ class ConversationManager: ObservableObject {
             for message in messages {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             print("[ConversationManager] Using estimated tokens: \(totalTokens)")
         }
@@ -3217,11 +3084,8 @@ class ConversationManager: ObservableObject {
         var prunableToolTokens = 0
         var prunableMediaTokens = 0
         for (i, message) in messages.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolTokensForMessage(message, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
             if i != protectedIndex && message.hasUnprunedMedia {
                 prunableMediaTokens += mediaSavingsForMessage(message, isLMStudio: providerIsLMStudio)
@@ -3362,18 +3226,14 @@ class ConversationManager: ObservableObject {
             for message in messagesForLLM {
                 totalTokens += estimatedPromptTokens(for: message, isLMStudio: providerIsLMStudio)
                 totalTokens += toolInteractionTokens(message.toolInteractions, isLMStudio: providerIsLMStudio)
-                totalTokens += reasoningTokensForMessage(message)
             }
             totalTokens += currentTurnInteractions.reduce(0) { $0 + currentTurnInteractionTokens($1, isLMStudio: providerIsLMStudio) }
         }
         var prunableToolTokens = 0
         var prunableMediaTokens = 0
         for (i, message) in messagesForLLM.enumerated() {
-            let hasTools = !message.toolInteractions.isEmpty
-            let hasReasoning = message.assistantReasoning != nil || message.assistantReasoningDetails != nil
-            if i != protectedIndex && message.role == .assistant && (hasTools || hasReasoning) {
+            if i != protectedIndex && message.role == .assistant && !message.toolInteractions.isEmpty {
                 prunableToolTokens += toolTokensForMessage(message, isLMStudio: providerIsLMStudio)
-                prunableToolTokens += reasoningTokensForMessage(message)
             }
             if i != protectedIndex && message.hasUnprunedMedia {
                 prunableMediaTokens += mediaSavingsForMessage(message, isLMStudio: providerIsLMStudio)
@@ -3425,20 +3285,19 @@ class ConversationManager: ObservableObject {
             deferredMCPSummaries: deferredMCPSummaries
         ),
            let anchor = pruneSummaryAnchorIndex(plan: plan, compressedIndices: compressedIndices, messageCount: messagesForLLM.count) {
-            let cleanSummary = stripInlineReasoningBlocks(from: summary)
-            appendPrunedContextSummary(cleanSummary, toMessageAt: anchor)
+            appendPrunedContextSummary(summary, toMessageAt: anchor)
             // Mid-loop pruning has two live copies: durable `messages` and the
             // in-flight prompt snapshot. Keep both in sync so the current tool
             // loop sees the new summary and the summary also survives the turn.
-            if messagesForLLM.indices.contains(anchor), !cleanSummary.isEmpty {
+            if messagesForLLM.indices.contains(anchor) {
                 if let existing = messagesForLLM[anchor].prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !existing.isEmpty {
-                    messagesForLLM[anchor].prunedContextSummary = existing + "\n\n" + cleanSummary
+                    messagesForLLM[anchor].prunedContextSummary = existing + "\n\n" + summary
                 } else {
-                    messagesForLLM[anchor].prunedContextSummary = cleanSummary
+                    messagesForLLM[anchor].prunedContextSummary = summary
                 }
             }
-            totalTokens += max(cleanSummary.count / 4, 1)
+            totalTokens += max(summary.count / 4, 1)
         }
 
         for action in plan.actions {
@@ -3467,21 +3326,12 @@ class ConversationManager: ObservableObject {
         if prunedToolCount > 0 {
             // Persist to self.messages (indices correspond since no mutations during the loop)
             for i in 0..<min(messagesForLLM.count, messages.count) {
-                guard messagesForLLM[i].id == messages[i].id else { continue }
-                let didPruneTools = messagesForLLM[i].toolInteractions.isEmpty && !messages[i].toolInteractions.isEmpty
-                let didPruneReasoning = messagesForLLM[i].assistantReasoning == nil
-                    && messagesForLLM[i].assistantReasoningDetails == nil
-                    && (messages[i].assistantReasoning != nil || messages[i].assistantReasoningDetails != nil)
-                if didPruneTools {
+                if messagesForLLM[i].id == messages[i].id
+                    && messagesForLLM[i].toolInteractions.isEmpty
+                    && !messages[i].toolInteractions.isEmpty {
                     messages[i].compactToolLog = messagesForLLM[i].compactToolLog
                     messages[i].toolInteractions = []
                     messages[i].measuredToolTokens = nil
-                    messages[i].measuredTokens = messagesForLLM[i].measuredTokens
-                }
-                if didPruneReasoning {
-                    messages[i].assistantReasoning = nil
-                    messages[i].assistantReasoningDetails = nil
-                    messages[i].assistantReasoningTokens = nil
                     messages[i].measuredTokens = messagesForLLM[i].measuredTokens
                 }
             }
@@ -4244,9 +4094,6 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
-                    assistantReasoning: response.finalReasoning,
-                    assistantReasoningDetails: response.finalReasoningDetails,
-                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4311,9 +4158,6 @@ class ConversationManager: ObservableObject {
             let assistantMessage = Message(
                 role: .assistant,
                 content: finalResponse,
-                assistantReasoning: response.finalReasoning,
-                assistantReasoningDetails: response.finalReasoningDetails,
-                assistantReasoningTokens: response.finalReasoningTokens,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -4411,9 +4255,6 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
-                    assistantReasoning: response.finalReasoning,
-                    assistantReasoningDetails: response.finalReasoningDetails,
-                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4515,9 +4356,6 @@ class ConversationManager: ObservableObject {
                 let assistantMessage = Message(
                     role: .assistant,
                     content: finalResponse,
-                    assistantReasoning: response.finalReasoning,
-                    assistantReasoningDetails: response.finalReasoningDetails,
-                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4634,9 +4472,6 @@ class ConversationManager: ObservableObject {
                     let assistantMessage = Message(
                         role: .assistant,
                         content: finalResponse,
-                        assistantReasoning: response.finalReasoning,
-                        assistantReasoningDetails: response.finalReasoningDetails,
-                        assistantReasoningTokens: response.finalReasoningTokens,
                         downloadedDocumentFileNames: downloadedFilenames,
                         editedFilePaths: response.editedFilePaths,
                         generatedFilePaths: response.generatedFilePaths,
@@ -4719,31 +4554,12 @@ class ConversationManager: ObservableObject {
             let data = try Data(contentsOf: conversationFileURL)
             messages = try JSONDecoder().decode([Message].self, from: data)
             // Cleanup old compact tool logs from previous runs to keep context lean.
-            let prunedLogs = pruneOldToolLogMessages()
-            let sanitizedSummaries = sanitizeStoredPrunedContextSummaries()
-            if prunedLogs > 0 || sanitizedSummaries > 0 {
+            if pruneOldToolLogMessages() > 0 {
                 saveConversation()
             }
         } catch {
             print("Failed to load conversation: \(error)")
         }
-    }
-
-    @discardableResult
-    private func sanitizeStoredPrunedContextSummaries() -> Int {
-        var changed = 0
-        for index in messages.indices {
-            guard let summary = messages[index].prunedContextSummary else { continue }
-            let sanitized = stripInlineReasoningBlocks(from: summary)
-            if sanitized != summary {
-                messages[index].prunedContextSummary = sanitized.isEmpty ? nil : sanitized
-                changed += 1
-            }
-        }
-        if changed > 0 {
-            print("[ConversationManager] Sanitized \(changed) stored pruned context summar\(changed == 1 ? "y" : "ies")")
-        }
-        return changed
     }
     
     private func saveConversation() {

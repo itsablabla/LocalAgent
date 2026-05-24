@@ -450,7 +450,7 @@ struct WebSearchResult: Codable {
 // MARK: - LLM Response Types
 
 enum LLMResponse {
-    case text(String, promptTokens: Int?, completionTokens: Int?, spendUSD: Double?, reasoning: JSONValue?, reasoningDetails: JSONValue?, reasoningTokens: Int?)
+    case text(String, promptTokens: Int?, completionTokens: Int?, spendUSD: Double?)
     case toolCalls(assistantMessage: AssistantToolCallMessage, calls: [ToolCall], promptTokens: Int?, completionTokens: Int?, spendUSD: Double?)
 }
 
@@ -461,8 +461,6 @@ struct AssistantToolCallMessage: Codable {
     let toolCalls: [ToolCall]
     let reasoning: JSONValue?
     let reasoningDetails: JSONValue?
-    let measuredCompletionTokens: Int?
-    let measuredReasoningTokens: Int?
     
     enum CodingKeys: String, CodingKey {
         case role
@@ -470,25 +468,14 @@ struct AssistantToolCallMessage: Codable {
         case toolCalls = "tool_calls"
         case reasoning
         case reasoningDetails = "reasoning_details"
-        case measuredCompletionTokens
-        case measuredReasoningTokens
     }
     
-    init(
-        content: String?,
-        toolCalls: [ToolCall],
-        reasoning: JSONValue? = nil,
-        reasoningDetails: JSONValue? = nil,
-        measuredCompletionTokens: Int? = nil,
-        measuredReasoningTokens: Int? = nil
-    ) {
+    init(content: String?, toolCalls: [ToolCall], reasoning: JSONValue? = nil, reasoningDetails: JSONValue? = nil) {
         self.role = "assistant"
         self.content = content
         self.toolCalls = toolCalls
         self.reasoning = reasoning
         self.reasoningDetails = reasoningDetails
-        self.measuredCompletionTokens = measuredCompletionTokens
-        self.measuredReasoningTokens = measuredReasoningTokens
     }
 }
 
