@@ -558,12 +558,15 @@ actor OpenRouterService {
             lines.append("Subagent session events: \(events.joined(separator: "; "))")
         }
 
-        if let summary = message.prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !summary.isEmpty {
-            lines.append("""
-            Pruned context summary for the preceding turn(s):
-            \(summary)
-            """)
+        if let rawSummary = message.prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawSummary.isEmpty {
+            let summary = stripInlineReasoningBlocks(from: rawSummary)
+            if !summary.isEmpty {
+                lines.append("""
+                Pruned context summary for the preceding turn(s):
+                \(summary)
+                """)
+            }
         }
 
         guard !lines.isEmpty else { return nil }
@@ -768,6 +771,7 @@ actor OpenRouterService {
         modelOverride: String? = nil,
         providerOverride: [String]? = nil,
         reasoningEffortOverride: String? = nil,
+        preserveReasoning: Bool = true,
         deferredMCPSummaries: [(name: String, description: String, toolCount: Int)]? = nil
     ) async throws -> LLMResponse {
         guard isLMStudio || !apiKey.isEmpty else {
@@ -1527,18 +1531,46 @@ actor OpenRouterService {
             throw OpenRouterError.noContent
         }
 
+        let responseContent = preserveReasoning ? content : stripInlineReasoningBlocks(from: content)
+
         return .text(
-            content,
+            responseContent,
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             spendUSD: callSpendUSD,
-            reasoning: choice.message.reasoning,
-            reasoningDetails: choice.message.reasoningDetails,
-            reasoningTokens: reasoningTokens
+            reasoning: preserveReasoning ? choice.message.reasoning : nil,
+            reasoningDetails: preserveReasoning ? choice.message.reasoningDetails : nil,
+            reasoningTokens: preserveReasoning ? reasoningTokens : nil
         )
     }
     
     // MARK: - Context Snapshot
+
+    private func stripInlineReasoningBlocks(from text: String) -> String {
+        var cleaned = text
+        if let regex = try? NSRegularExpression(
+            pattern: #"(?is)<think\b[^>]*>.*?</think>"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        if let unclosedRegex = try? NSRegularExpression(
+            pattern: #"(?is)<think\b[^>]*>.*$"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = unclosedRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        if let tagRegex = try? NSRegularExpression(
+            pattern: #"(?is)</?think\b[^>]*>"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = tagRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private func snapshotPreview(_ text: String, maxLength: Int) -> String {
         text.count > maxLength ? String(text.prefix(maxLength)) + "..." : text

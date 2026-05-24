@@ -1386,8 +1386,9 @@ class ConversationManager: ObservableObject {
             deferredMCPSummaries: deferredSummaries
         ),
            let anchor = pruneSummaryAnchorIndex(plan: plan, compressedIndices: compressedIndices, messageCount: messages.count) {
-            appendPrunedContextSummary(summary, toMessageAt: anchor)
-            totalTokens += max(summary.count / 4, 1)
+            let cleanSummary = stripInlineReasoningBlocks(from: summary)
+            appendPrunedContextSummary(cleanSummary, toMessageAt: anchor)
+            totalTokens += max(cleanSummary.count / 4, 1)
         }
 
         for action in plan.actions {
@@ -2890,7 +2891,7 @@ class ConversationManager: ObservableObject {
     }
 
     private func appendPrunedContextSummary(_ summary: String, toMessageAt index: Int) {
-        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = stripInlineReasoningBlocks(from: summary)
         guard !trimmed.isEmpty, messages.indices.contains(index) else { return }
 
         if let existing = messages[index].prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2899,6 +2900,32 @@ class ConversationManager: ObservableObject {
         } else {
             messages[index].prunedContextSummary = trimmed
         }
+    }
+
+    private func stripInlineReasoningBlocks(from text: String) -> String {
+        var cleaned = text
+        if let regex = try? NSRegularExpression(
+            pattern: #"(?is)<think\b[^>]*>.*?</think>"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        if let unclosedRegex = try? NSRegularExpression(
+            pattern: #"(?is)<think\b[^>]*>.*$"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = unclosedRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        if let tagRegex = try? NSRegularExpression(
+            pattern: #"(?is)</?think\b[^>]*>"#,
+            options: []
+        ) {
+            let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+            cleaned = tagRegex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func pruneSummaryAnchorIndex(plan: PrunePlan, compressedIndices: [Int], messageCount: Int) -> Int? {
@@ -3050,6 +3077,7 @@ class ConversationManager: ObservableObject {
         - tool calls, tool outputs, and assistant reasoning for listed tool-interaction turns
         - media/file relevance for listed media turns
         - useful facts from listed synthetic message bodies
+        Summarize the source turn reasoning when it matters for continuity, but do not include your own chain-of-thought, draft text, hidden scratch work, or text inside <think> tags in the output.
         Do not summarize unlisted turns or stable visible chat text that is not being pruned.
         Keep durable details: user goals, decisions, findings, errors, commands, file paths, filenames, IDs, URLs, tool outcomes, and unresolved next steps. This summary's purpose is to let you continue to work without missing important information once this content is pruned. View it as a baton exchange to a future version of you that will not see this pruned content.
         Omit routine noise, duplicated logs, and low-value progress chatter.
@@ -3072,7 +3100,7 @@ class ConversationManager: ObservableObject {
                 messages: sourceMessages,
                 imagesDirectory: imagesDirectory,
                 documentsDirectory: documentsDirectory,
-                tools: tools,
+                tools: nil,
                 toolResultMessages: currentTurnInteractions,
                 calendarContext: calendarContext,
                 emailContext: emailContext,
@@ -3081,6 +3109,7 @@ class ConversationManager: ObservableObject {
                 currentUserMessageId: currentUserMessageId,
                 turnStartDate: turnStartDate,
                 tailUserMessage: tail,
+                preserveReasoning: false,
                 deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {
@@ -3396,19 +3425,20 @@ class ConversationManager: ObservableObject {
             deferredMCPSummaries: deferredMCPSummaries
         ),
            let anchor = pruneSummaryAnchorIndex(plan: plan, compressedIndices: compressedIndices, messageCount: messagesForLLM.count) {
-            appendPrunedContextSummary(summary, toMessageAt: anchor)
+            let cleanSummary = stripInlineReasoningBlocks(from: summary)
+            appendPrunedContextSummary(cleanSummary, toMessageAt: anchor)
             // Mid-loop pruning has two live copies: durable `messages` and the
             // in-flight prompt snapshot. Keep both in sync so the current tool
             // loop sees the new summary and the summary also survives the turn.
-            if messagesForLLM.indices.contains(anchor) {
+            if messagesForLLM.indices.contains(anchor), !cleanSummary.isEmpty {
                 if let existing = messagesForLLM[anchor].prunedContextSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !existing.isEmpty {
-                    messagesForLLM[anchor].prunedContextSummary = existing + "\n\n" + summary
+                    messagesForLLM[anchor].prunedContextSummary = existing + "\n\n" + cleanSummary
                 } else {
-                    messagesForLLM[anchor].prunedContextSummary = summary
+                    messagesForLLM[anchor].prunedContextSummary = cleanSummary
                 }
             }
-            totalTokens += max(summary.count / 4, 1)
+            totalTokens += max(cleanSummary.count / 4, 1)
         }
 
         for action in plan.actions {
@@ -4689,12 +4719,31 @@ class ConversationManager: ObservableObject {
             let data = try Data(contentsOf: conversationFileURL)
             messages = try JSONDecoder().decode([Message].self, from: data)
             // Cleanup old compact tool logs from previous runs to keep context lean.
-            if pruneOldToolLogMessages() > 0 {
+            let prunedLogs = pruneOldToolLogMessages()
+            let sanitizedSummaries = sanitizeStoredPrunedContextSummaries()
+            if prunedLogs > 0 || sanitizedSummaries > 0 {
                 saveConversation()
             }
         } catch {
             print("Failed to load conversation: \(error)")
         }
+    }
+
+    @discardableResult
+    private func sanitizeStoredPrunedContextSummaries() -> Int {
+        var changed = 0
+        for index in messages.indices {
+            guard let summary = messages[index].prunedContextSummary else { continue }
+            let sanitized = stripInlineReasoningBlocks(from: summary)
+            if sanitized != summary {
+                messages[index].prunedContextSummary = sanitized.isEmpty ? nil : sanitized
+                changed += 1
+            }
+        }
+        if changed > 0 {
+            print("[ConversationManager] Sanitized \(changed) stored pruned context summar\(changed == 1 ? "y" : "ies")")
+        }
+        return changed
     }
     
     private func saveConversation() {
