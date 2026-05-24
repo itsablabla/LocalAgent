@@ -34,6 +34,7 @@ struct Message: Identifiable, Codable, Equatable {
     var content: String
     var assistantReasoning: JSONValue?
     var assistantReasoningDetails: JSONValue?
+    var assistantReasoningTokens: Int?
     let timestamp: Date
     
     // Multiple attachments support (primary storage)
@@ -121,11 +122,17 @@ struct Message: Identifiable, Codable, Equatable {
         if let prunedContextSummary, !prunedContextSummary.isEmpty {
             tokens += prunedContextSummary.count / 4
         }
-        if let assistantReasoning {
-            tokens += Self.estimatedTokens(for: assistantReasoning)
-        }
-        if let assistantReasoningDetails {
-            tokens += Self.estimatedTokens(for: assistantReasoningDetails)
+        if assistantReasoning != nil || assistantReasoningDetails != nil {
+            if let assistantReasoningTokens {
+                tokens += assistantReasoningTokens
+            } else {
+                if let assistantReasoning {
+                    tokens += Self.estimatedTokens(for: assistantReasoning)
+                }
+                if let assistantReasoningDetails {
+                    tokens += Self.estimatedTokens(for: assistantReasoningDetails)
+                }
+            }
         }
         let mediaTokensPerFile = mediaPruned ? 50 : 1500
         tokens += mediaFileCount * mediaTokensPerFile
@@ -174,6 +181,7 @@ struct Message: Identifiable, Codable, Equatable {
         content: String,
         assistantReasoning: JSONValue? = nil,
         assistantReasoningDetails: JSONValue? = nil,
+        assistantReasoningTokens: Int? = nil,
         timestamp: Date = Date(),
         imageFileNames: [String] = [],
         documentFileNames: [String] = [],
@@ -200,6 +208,7 @@ struct Message: Identifiable, Codable, Equatable {
         self.content = content
         self.assistantReasoning = assistantReasoning
         self.assistantReasoningDetails = assistantReasoningDetails
+        self.assistantReasoningTokens = assistantReasoningTokens
         self.timestamp = timestamp
         self.imageFileNames = imageFileNames
         self.documentFileNames = documentFileNames
@@ -225,7 +234,7 @@ struct Message: Identifiable, Codable, Equatable {
     // MARK: - Codable (with backward compatibility)
     
     enum CodingKeys: String, CodingKey {
-        case id, role, content, assistantReasoning, assistantReasoningDetails, timestamp
+        case id, role, content, assistantReasoning, assistantReasoningDetails, assistantReasoningTokens, timestamp
         // New array fields
         case imageFileNames, documentFileNames, imageFileSizes, documentFileSizes
         case referencedImageFileNames, referencedDocumentFileNames
@@ -245,6 +254,7 @@ struct Message: Identifiable, Codable, Equatable {
         content = try container.decode(String.self, forKey: .content)
         assistantReasoning = try? container.decodeIfPresent(JSONValue.self, forKey: .assistantReasoning)
         assistantReasoningDetails = try? container.decodeIfPresent(JSONValue.self, forKey: .assistantReasoningDetails)
+        assistantReasoningTokens = try? container.decodeIfPresent(Int.self, forKey: .assistantReasoningTokens)
         timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date()
         
         // Try new array format first, fall back to legacy single-value format
@@ -349,6 +359,7 @@ struct Message: Identifiable, Codable, Equatable {
         try container.encode(content, forKey: .content)
         try container.encodeIfPresent(assistantReasoning, forKey: .assistantReasoning)
         try container.encodeIfPresent(assistantReasoningDetails, forKey: .assistantReasoningDetails)
+        try container.encodeIfPresent(assistantReasoningTokens, forKey: .assistantReasoningTokens)
         try container.encode(timestamp, forKey: .timestamp)
         
         // Always encode in new array format
@@ -394,6 +405,7 @@ struct Message: Identifiable, Codable, Equatable {
         lhs.content == rhs.content &&
         jsonValueEquatable(lhs.assistantReasoning, rhs.assistantReasoning) &&
         jsonValueEquatable(lhs.assistantReasoningDetails, rhs.assistantReasoningDetails) &&
+        lhs.assistantReasoningTokens == rhs.assistantReasoningTokens &&
         lhs.timestamp == rhs.timestamp &&
         lhs.imageFileNames == rhs.imageFileNames &&
         lhs.documentFileNames == rhs.documentFileNames &&

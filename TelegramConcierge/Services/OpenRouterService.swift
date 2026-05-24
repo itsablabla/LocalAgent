@@ -1486,6 +1486,7 @@ actor OpenRouterService {
         // Extract usage info for token tracking
         let promptTokens = decoded.usage?.promptTokens
         let completionTokens = decoded.usage?.completionTokens
+        let reasoningTokens = decoded.usage?.completionTokensDetails?.reasoningTokens
         let cachedTokens = decoded.usage?.promptTokensDetails?.cachedTokens ?? 0
         let directCost = decoded.usage?.cost?.value
         let upstreamInferenceCost = decoded.usage?.costDetails?.upstreamInferenceCost?.value
@@ -1510,7 +1511,9 @@ actor OpenRouterService {
                     content: choice.message.content,
                     toolCalls: toolCalls,
                     reasoning: choice.message.reasoning,
-                    reasoningDetails: choice.message.reasoningDetails
+                    reasoningDetails: choice.message.reasoningDetails,
+                    measuredCompletionTokens: completionTokens,
+                    measuredReasoningTokens: reasoningTokens
                 ),
                 calls: toolCalls,
                 promptTokens: promptTokens,
@@ -1530,7 +1533,8 @@ actor OpenRouterService {
             completionTokens: completionTokens,
             spendUSD: callSpendUSD,
             reasoning: choice.message.reasoning,
-            reasoningDetails: choice.message.reasoningDetails
+            reasoningDetails: choice.message.reasoningDetails,
+            reasoningTokens: reasoningTokens
         )
     }
     
@@ -1713,11 +1717,11 @@ actor OpenRouterService {
 
             // Message content
             let contentPreview = message.content
-            out += "[\(i)] \(role) (\(time)): \(contentPreview)\n"
             if let reasoning = message.assistantReasoning {
                 let preview = snapshotPreview(reasoning, maxLength: 300)
                 out += "  [final reasoning: \(preview)]\n"
             }
+            out += "[\(i)] \(role) (\(time)): \(contentPreview)\n"
 
             // Attachments
             for img in message.imageFileNames {
@@ -2595,11 +2599,11 @@ struct OpenRouterAPIMessage: Codable {
     
     enum CodingKeys: String, CodingKey {
         case role
+        case reasoning
+        case reasoningDetails = "reasoning_details"
         case content
         case toolCalls = "tool_calls"
         case toolCallId = "tool_call_id"
-        case reasoning
-        case reasoningDetails = "reasoning_details"
     }
     
     init(
@@ -2758,6 +2762,7 @@ struct OpenRouterUsage: Codable {
     let completionTokens: Int?
     let totalTokens: Int?
     let promptTokensDetails: PromptTokensDetails?
+    let completionTokensDetails: CompletionTokensDetails?
     let cost: LossyDouble?
     let costDetails: OpenRouterCostDetails?
     
@@ -2766,6 +2771,7 @@ struct OpenRouterUsage: Codable {
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
         case promptTokensDetails = "prompt_tokens_details"
+        case completionTokensDetails = "completion_tokens_details"
         case cost
         case costDetails = "cost_details"
     }
@@ -2829,6 +2835,18 @@ struct PromptTokensDetails: Codable {
     enum CodingKeys: String, CodingKey {
         case cachedTokens = "cached_tokens"
         case audioTokens = "audio_tokens"
+    }
+}
+
+struct CompletionTokensDetails: Codable {
+    let reasoningTokens: Int?
+    let audioTokens: Int?
+    let imageTokens: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case reasoningTokens = "reasoning_tokens"
+        case audioTokens = "audio_tokens"
+        case imageTokens = "image_tokens"
     }
 }
 

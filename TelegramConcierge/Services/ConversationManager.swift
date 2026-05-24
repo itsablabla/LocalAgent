@@ -90,6 +90,7 @@ class ConversationManager: ObservableObject {
         let finalText: String
         let finalReasoning: JSONValue?
         let finalReasoningDetails: JSONValue?
+        let finalReasoningTokens: Int?
         let compactToolLog: String?
         let toolInteractions: [ToolInteraction]
         let accessedProjects: [String]?
@@ -116,6 +117,7 @@ class ConversationManager: ObservableObject {
             finalText: String,
             finalReasoning: JSONValue? = nil,
             finalReasoningDetails: JSONValue? = nil,
+            finalReasoningTokens: Int? = nil,
             compactToolLog: String?,
             toolInteractions: [ToolInteraction],
             accessedProjects: [String]?,
@@ -130,6 +132,7 @@ class ConversationManager: ObservableObject {
             self.finalText = finalText
             self.finalReasoning = finalReasoning
             self.finalReasoningDetails = finalReasoningDetails
+            self.finalReasoningTokens = finalReasoningTokens
             self.compactToolLog = compactToolLog
             self.toolInteractions = toolInteractions
             self.accessedProjects = accessedProjects
@@ -939,6 +942,7 @@ class ConversationManager: ObservableObject {
                 content: finalResponse,
                 assistantReasoning: response.finalReasoning,
                 assistantReasoningDetails: response.finalReasoningDetails,
+                assistantReasoningTokens: response.finalReasoningTokens,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -1902,7 +1906,7 @@ class ConversationManager: ObservableObject {
             }
             
             switch response {
-            case .text(let content, let promptTokens, let completionTokens, _, let reasoning, let reasoningDetails):
+            case .text(let content, let promptTokens, let completionTokens, _, let reasoning, let reasoningDetails, let reasoningTokens):
                 // LLM decided to respond with text - we're done
                 if let tokens = promptTokens {
                     lastPromptTokens = tokens
@@ -1930,6 +1934,7 @@ class ConversationManager: ObservableObject {
                     finalText: content,
                     finalReasoning: reasoning,
                     finalReasoningDetails: reasoningDetails,
+                    finalReasoningTokens: reasoningTokens,
                     compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                     toolInteractions: toolInteractions,
                     accessedProjects: accessedProjects,
@@ -2218,7 +2223,7 @@ class ConversationManager: ObservableObject {
         let finalPromptTokens: Int?
         let finalCompTokens: Int?
         switch finalResponse {
-        case .text(_, let pt, let ct, _, _, _):
+        case .text(_, let pt, let ct, _, _, _, _):
             finalPromptTokens = pt
             finalCompTokens = ct
         case .toolCalls(_, _, let pt, let ct, _):
@@ -2249,11 +2254,12 @@ class ConversationManager: ObservableObject {
         }()
 
         switch finalResponse {
-        case .text(let content, _, _, _, let reasoning, let reasoningDetails):
+        case .text(let content, _, _, _, let reasoning, let reasoningDetails, let reasoningTokens):
             return ToolAwareResponse(
                 finalText: content,
                 finalReasoning: reasoning,
                 finalReasoningDetails: reasoningDetails,
+                finalReasoningTokens: reasoningTokens,
                 compactToolLog: buildCompactToolExecutionLog(from: toolInteractions),
                 toolInteractions: toolInteractions,
                 accessedProjects: accessedProjects,
@@ -2355,7 +2361,7 @@ class ConversationManager: ObservableObject {
     
     private func spendUSD(from response: LLMResponse) -> Double? {
         switch response {
-        case .text(_, _, _, let spendUSD, _, _):
+        case .text(_, _, _, let spendUSD, _, _, _):
             return spendUSD
         case .toolCalls(_, _, _, _, let spendUSD):
             return spendUSD
@@ -2666,12 +2672,22 @@ class ConversationManager: ObservableObject {
         return tokens
     }
 
-    private func estimatedStoredToolInteractionTokens(_ interaction: ToolInteraction) -> Int {
-        var tokens = (interaction.assistantMessage.content?.count ?? 0) / 4
-        for call in interaction.assistantMessage.toolCalls {
+    private func estimatedAssistantToolCallTokens(_ assistantMessage: AssistantToolCallMessage) -> Int {
+        if let measured = assistantMessage.measuredCompletionTokens, measured > 0 {
+            return measured
+        }
+
+        var tokens = (assistantMessage.content?.count ?? 0) / 4
+        for call in assistantMessage.toolCalls {
             tokens += call.function.arguments.count / 4
             tokens += call.function.name.count / 4 + 20
         }
+        tokens += reasoningTokensForAssistantToolCall(assistantMessage)
+        return max(tokens, 1)
+    }
+
+    private func estimatedStoredToolInteractionTokens(_ interaction: ToolInteraction) -> Int {
+        var tokens = estimatedAssistantToolCallTokens(interaction.assistantMessage)
         for result in interaction.results {
             tokens += result.content.count / 4 + 20
         }
@@ -2740,12 +2756,40 @@ class ConversationManager: ObservableObject {
     }
 
     private func reasoningTokensForMessage(_ message: Message) -> Int {
+        guard message.assistantReasoning != nil || message.assistantReasoningDetails != nil else {
+            return 0
+        }
+        if let measured = message.assistantReasoningTokens {
+            return measured
+        }
+
+        return estimatedReasoningTokens(
+            reasoning: message.assistantReasoning,
+            reasoningDetails: message.assistantReasoningDetails
+        )
+    }
+
+    private func reasoningTokensForAssistantToolCall(_ assistantMessage: AssistantToolCallMessage) -> Int {
+        guard assistantMessage.reasoning != nil || assistantMessage.reasoningDetails != nil else {
+            return 0
+        }
+        if let measured = assistantMessage.measuredReasoningTokens {
+            return measured
+        }
+
+        return estimatedReasoningTokens(
+            reasoning: assistantMessage.reasoning,
+            reasoningDetails: assistantMessage.reasoningDetails
+        )
+    }
+
+    private func estimatedReasoningTokens(reasoning: JSONValue?, reasoningDetails: JSONValue?) -> Int {
         let encoder = JSONEncoder()
         var tokens = 0
-        if let r = message.assistantReasoning, let data = try? encoder.encode(r) {
+        if let r = reasoning, let data = try? encoder.encode(r) {
             tokens += max(data.count / 4, 1)
         }
-        if let rd = message.assistantReasoningDetails, let data = try? encoder.encode(rd) {
+        if let rd = reasoningDetails, let data = try? encoder.encode(rd) {
             tokens += max(data.count / 4, 1)
         }
         return tokens
@@ -2907,6 +2951,7 @@ class ConversationManager: ObservableObject {
                 targetMessages[index].measuredToolTokens = nil
                 targetMessages[index].assistantReasoning = nil
                 targetMessages[index].assistantReasoningDetails = nil
+                targetMessages[index].assistantReasoningTokens = nil
                 if let m = targetMessages[index].measuredTokens {
                     targetMessages[index].measuredTokens = max(m - savedTokens, 0)
                 }
@@ -3039,7 +3084,7 @@ class ConversationManager: ObservableObject {
                 deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
             )
             switch response {
-            case .text(let content, _, _, _, _, _):
+            case .text(let content, _, _, _, _, _, _):
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 DebugTelemetry.log(
                     .info,
@@ -3406,6 +3451,7 @@ class ConversationManager: ObservableObject {
                 if didPruneReasoning {
                     messages[i].assistantReasoning = nil
                     messages[i].assistantReasoningDetails = nil
+                    messages[i].assistantReasoningTokens = nil
                     messages[i].measuredTokens = messagesForLLM[i].measuredTokens
                 }
             }
@@ -4170,6 +4216,7 @@ class ConversationManager: ObservableObject {
                     content: finalResponse,
                     assistantReasoning: response.finalReasoning,
                     assistantReasoningDetails: response.finalReasoningDetails,
+                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4236,6 +4283,7 @@ class ConversationManager: ObservableObject {
                 content: finalResponse,
                 assistantReasoning: response.finalReasoning,
                 assistantReasoningDetails: response.finalReasoningDetails,
+                assistantReasoningTokens: response.finalReasoningTokens,
                 downloadedDocumentFileNames: downloadedFilenames,
                 editedFilePaths: response.editedFilePaths,
                 generatedFilePaths: response.generatedFilePaths,
@@ -4335,6 +4383,7 @@ class ConversationManager: ObservableObject {
                     content: finalResponse,
                     assistantReasoning: response.finalReasoning,
                     assistantReasoningDetails: response.finalReasoningDetails,
+                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4438,6 +4487,7 @@ class ConversationManager: ObservableObject {
                     content: finalResponse,
                     assistantReasoning: response.finalReasoning,
                     assistantReasoningDetails: response.finalReasoningDetails,
+                    assistantReasoningTokens: response.finalReasoningTokens,
                     downloadedDocumentFileNames: downloadedFilenames,
                     editedFilePaths: response.editedFilePaths,
                     generatedFilePaths: response.generatedFilePaths,
@@ -4556,6 +4606,7 @@ class ConversationManager: ObservableObject {
                         content: finalResponse,
                         assistantReasoning: response.finalReasoning,
                         assistantReasoningDetails: response.finalReasoningDetails,
+                        assistantReasoningTokens: response.finalReasoningTokens,
                         downloadedDocumentFileNames: downloadedFilenames,
                         editedFilePaths: response.editedFilePaths,
                         generatedFilePaths: response.generatedFilePaths,
