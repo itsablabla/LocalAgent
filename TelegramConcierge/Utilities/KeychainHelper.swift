@@ -8,6 +8,7 @@ extension Notification.Name {
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter = "openrouter"
     case lmStudio = "lmstudio" // Kept as "lmstudio" for backward compatibility; represents any local provider
+    case openAICompatible = "openai_compatible" // Any remote OpenAI-compatible endpoint (base URL + API key)
 
     var id: String { rawValue }
 
@@ -15,6 +16,16 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         switch self {
         case .openRouter: return "OpenRouter"
         case .lmStudio: return "Local Inference"
+        case .openAICompatible: return "OpenAI-Compatible"
+        }
+    }
+
+    /// Non-OpenRouter, OpenAI-compatible `/chat/completions` endpoints (local or remote custom API).
+    /// These share the same request format and provider-routing behavior; they differ only in auth.
+    var isCustomEndpoint: Bool {
+        switch self {
+        case .lmStudio, .openAICompatible: return true
+        case .openRouter: return false
         }
     }
 
@@ -167,12 +178,17 @@ extension KeychainHelper {
     static let openAITranscriptionApiKeyKey = "openai_transcription_api_key"
     
     // LLM Provider Selection
-    static let llmProviderKey = "llm_provider"  // "openrouter" or "lmstudio"
+    static let llmProviderKey = "llm_provider"  // "openrouter", "lmstudio", or "openai_compatible"
     static let lmStudioBaseURLKey = "lmstudio_base_url"
     static let lmStudioModelKey = "lmstudio_model"
     static let defaultLMStudioBaseURL = "http://localhost:1234/v1"
     static let lmStudioDescriptionModelKey = "lmstudio_description_model"
     static let lmStudioDescriptionBaseURLKey = "lmstudio_description_base_url"
+
+    // OpenAI-Compatible Provider (remote endpoint + API key; behaves like Local for the main model)
+    static let openAICompatibleBaseURLKey = "openai_compatible_base_url"
+    static let openAICompatibleModelKey = "openai_compatible_model"
+    static let openAICompatibleApiKeyKey = "openai_compatible_api_key"
 
     // Text-Only Model Settings
     static let textOnlyModelEnabledKey = "text_only_model_enabled"  // "true" or absent

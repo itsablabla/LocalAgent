@@ -30,39 +30,72 @@ actor ConversationArchiveService {
     private let consolidationTriggerCount = 6 // Trigger at 6 temps, leaving 2 as buffer
     
     // Archive LLM config
-    private var isLMStudio: Bool {
-        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)) == .lmStudio
+    private var currentProvider: LLMProvider {
+        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey))
+    }
+
+    /// Whether the user has selected a non-OpenRouter, OpenAI-compatible endpoint.
+    private var isCustomEndpoint: Bool {
+        currentProvider.isCustomEndpoint
+    }
+
+    /// Authorization header value for the active provider.
+    private var authorizationHeaderValue: String {
+        switch currentProvider {
+        case .openRouter:
+            return "Bearer \(apiKey)"
+        case .lmStudio:
+            return "Bearer lm-studio"
+        case .openAICompatible:
+            let key = KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return "Bearer \(key)"
+        }
+    }
+
+    private func normalizeCompletionsURL(_ raw: String, fallback: String) -> URL {
+        var base = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { base = fallback }
+        while base.hasSuffix("/") { base.removeLast() }
+        if base.hasSuffix("/chat/completions"), let url = URL(string: base) {
+            return url
+        }
+        if !base.hasSuffix("/v1") {
+            base += "/v1"
+        }
+        return URL(string: base + "/chat/completions")!
     }
 
     private var baseURL: URL {
-        if isLMStudio {
-            var base = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if base.isEmpty { base = KeychainHelper.defaultLMStudioBaseURL }
-            while base.hasSuffix("/") { base.removeLast() }
-            if base.hasSuffix("/chat/completions"), let url = URL(string: base) {
-                return url
-            }
-            if !base.hasSuffix("/v1") {
-                base += "/v1"
-            }
-            return URL(string: base + "/chat/completions")!
+        switch currentProvider {
+        case .openRouter:
+            return URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        case .lmStudio:
+            let raw = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey) ?? ""
+            return normalizeCompletionsURL(raw, fallback: KeychainHelper.defaultLMStudioBaseURL)
+        case .openAICompatible:
+            let raw = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey) ?? ""
+            return normalizeCompletionsURL(raw, fallback: "")
         }
-        return URL(string: "https://openrouter.ai/api/v1/chat/completions")!
     }
 
     private var model: String {
-        if isLMStudio {
+        switch currentProvider {
+        case .openRouter:
+            return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? "~google/gemini-flash-latest"
+        case .lmStudio:
             return (KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+        case .openAICompatible:
+            return (KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? "~google/gemini-flash-latest"
     }
     private var apiKey: String = ""
-    
+
     /// Returns the user-configured reasoning effort, defaulting to "high" on OpenRouter.
     private var reasoningEffort: String? {
-        guard !isLMStudio else { return nil }
+        guard !isCustomEndpoint else { return nil }
         guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
               !effort.isEmpty else {
             return "high"
@@ -1352,13 +1385,13 @@ actor ConversationArchiveService {
     // MARK: - Archive LLM API
     
     private func callLLM(systemPrompt: String, userPrompt: String, maxTokens: Int? = nil, sharedContextPrompt: String? = nil) async throws -> String {
-        let usingLMStudio = isLMStudio
+        let usingCustomEndpoint = isCustomEndpoint
 
-        if usingLMStudio && model.isEmpty {
-            throw ArchiveError.notConfigured(reason: "LMStudio model name is not configured for archive operations")
+        if usingCustomEndpoint && model.isEmpty {
+            throw ArchiveError.notConfigured(reason: "Model name is not configured for archive operations")
         }
 
-        if !usingLMStudio && apiKey.isEmpty {
+        if !usingCustomEndpoint && apiKey.isEmpty {
             throw ArchiveError.notConfigured(reason: "OpenRouter API key is not configured for archive operations")
         }
         
@@ -1401,14 +1434,12 @@ actor ConversationArchiveService {
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if usingLMStudio {
-            request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
-        } else {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(authorizationHeaderValue, forHTTPHeaderField: "Authorization")
+        if !usingCustomEndpoint {
             request.setValue("LocalAgent/1.0", forHTTPHeaderField: "HTTP-Referer")
             request.setValue("Telegram Concierge Bot", forHTTPHeaderField: "X-Title")
         }
-        request.timeoutInterval = usingLMStudio ? 1200 : 360
+        request.timeoutInterval = usingCustomEndpoint ? 1200 : 360
         request.httpBody = try JSONEncoder().encode(body)
         
         let (data, response) = try await URLSession.shared.data(for: request)

@@ -6,42 +6,81 @@ actor OpenRouterService {
     private let defaultModel = "~google/gemini-flash-latest"
     private var apiKey: String = ""
 
-    /// Whether the user has selected LMStudio as their LLM provider
-    private var isLMStudio: Bool {
-        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)) == .lmStudio
+    /// The user's currently selected LLM provider.
+    private var currentProvider: LLMProvider {
+        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey))
     }
 
-    /// The active API base URL — LMStudio local endpoint or OpenRouter
-    private var baseURL: String {
-        if isLMStudio {
-            var base = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if base.isEmpty { base = KeychainHelper.defaultLMStudioBaseURL }
-            // Strip trailing slash for consistent handling
-            while base.hasSuffix("/") { base.removeLast() }
-            // Already a full completions URL
-            if base.hasSuffix("/chat/completions") { return base }
-            // User entered just the base (e.g. http://localhost:1234) — append /v1/chat/completions
-            if !base.hasSuffix("/v1") {
-                base += "/v1"
-            }
-            return base + "/chat/completions"
+    /// Whether the user has selected a non-OpenRouter, OpenAI-compatible endpoint
+    /// (local inference or a remote custom API). These share the same request path;
+    /// they differ only in the Authorization header and which keychain keys hold config.
+    private var isCustomEndpoint: Bool {
+        currentProvider.isCustomEndpoint
+    }
+
+    /// Authorization header value for the active provider.
+    /// - OpenRouter: the configured OpenRouter key.
+    /// - Local inference: a throwaway token (most local servers ignore it).
+    /// - OpenAI-compatible: the configured remote API key.
+    private var authorizationHeaderValue: String {
+        switch currentProvider {
+        case .openRouter:
+            return "Bearer \(apiKey)"
+        case .lmStudio:
+            return "Bearer lm-studio"
+        case .openAICompatible:
+            let key = KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return "Bearer \(key)"
         }
-        return openRouterBaseURL
+    }
+
+    /// Normalizes a user-entered base URL into a full `/chat/completions` URL.
+    private func normalizeCompletionsURL(_ raw: String, fallback: String) -> String {
+        var base = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { base = fallback }
+        // Strip trailing slash for consistent handling
+        while base.hasSuffix("/") { base.removeLast() }
+        // Already a full completions URL
+        if base.hasSuffix("/chat/completions") { return base }
+        // User entered just the base (e.g. http://localhost:1234) — append /v1/chat/completions
+        if !base.hasSuffix("/v1") {
+            base += "/v1"
+        }
+        return base + "/chat/completions"
+    }
+
+    /// The active API base URL — custom OpenAI-compatible endpoint or OpenRouter
+    private var baseURL: String {
+        switch currentProvider {
+        case .openRouter:
+            return openRouterBaseURL
+        case .lmStudio:
+            let raw = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey) ?? ""
+            return normalizeCompletionsURL(raw, fallback: KeychainHelper.defaultLMStudioBaseURL)
+        case .openAICompatible:
+            let raw = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey) ?? ""
+            return normalizeCompletionsURL(raw, fallback: "")
+        }
     }
 
     /// Returns the user-configured model or falls back to default
     private var model: String {
-        if isLMStudio {
+        switch currentProvider {
+        case .openRouter:
+            return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? defaultModel
+        case .lmStudio:
             return KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? ""
+        case .openAICompatible:
+            return KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey) ?? ""
         }
-        return KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? defaultModel
     }
 
     /// Returns the user-configured provider order, or nil if not set.
     /// Falls back to ["google-ai-studio"] for the default Gemini model when no provider is configured,
     /// because OpenRouter may route it to unreliable providers otherwise.
     private func providers(for requestedModel: String) -> [String]? {
-        guard !isLMStudio else { return nil }
+        guard !isCustomEndpoint else { return nil }
         if let providersString = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey),
            !providersString.isEmpty {
             // User explicitly configured providers — use those
@@ -98,7 +137,7 @@ actor OpenRouterService {
 
     /// Returns the user-configured reasoning effort, defaulting to "high" for Gemini models
     private var reasoningEffort: String? {
-        guard !isLMStudio else { return nil }
+        guard !isCustomEndpoint else { return nil }
         guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
               !effort.isEmpty else {
             return "high"
@@ -121,7 +160,7 @@ actor OpenRouterService {
 
     /// Whether the current model is an Anthropic/Claude model (requires explicit cache_control markers)
     private var isAnthropicModel: Bool {
-        guard !isLMStudio else { return false }
+        guard !isCustomEndpoint else { return false }
         let m = model.lowercased()
         return m.contains("anthropic") || m.contains("claude")
     }
@@ -491,7 +530,7 @@ actor OpenRouterService {
     /// Native PDF input is only reliably supported by Gemini models on OpenRouter.
     /// Everything else (LM Studio, other OpenRouter models) gets PNG rendering.
     private var requiresPDFToImageConversion: Bool {
-        requiresPDFToImageConversion(for: model, usingLMStudio: isLMStudio)
+        requiresPDFToImageConversion(for: model, usingLMStudio: isCustomEndpoint)
     }
 
     private func requiresPDFToImageConversion(for requestedModel: String, usingLMStudio: Bool) -> Bool {
@@ -770,12 +809,12 @@ actor OpenRouterService {
         reasoningEffortOverride: String? = nil,
         deferredMCPSummaries: [(name: String, description: String, toolCount: Int)]? = nil
     ) async throws -> LLMResponse {
-        guard isLMStudio || !apiKey.isEmpty else {
+        guard isCustomEndpoint || !apiKey.isEmpty else {
             throw OpenRouterError.notConfigured
         }
 
-        if isLMStudio && model.isEmpty {
-            throw OpenRouterError.apiError("LMStudio model name is not configured. Set it in Settings.")
+        if isCustomEndpoint && model.isEmpty {
+            throw OpenRouterError.apiError("Model name is not configured for the selected provider. Set it in Settings.")
         }
 
         // Build API messages
@@ -1369,8 +1408,8 @@ actor OpenRouterService {
             try await preprocessMultimodalContent(in: &apiMessages)
         }
 
-        // Build request — skip OpenRouter-specific fields when using LMStudio
-        let usingLMStudio = isLMStudio
+        // Build request — skip OpenRouter-specific fields when using a custom OpenAI-compatible endpoint
+        let usingCustomEndpoint = isCustomEndpoint
 
         let effectiveModel: String = {
             if let override = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1381,7 +1420,7 @@ actor OpenRouterService {
         }()
 
         var providerPrefs: ProviderPreferences? = nil
-        if !usingLMStudio {
+        if !usingCustomEndpoint {
             if let order = providerOverride, !order.isEmpty {
                 providerPrefs = ProviderPreferences(order: nil, only: order, allow_fallbacks: false, sort: nil)
             } else if let providerOrder = providers(for: effectiveModel), !providerOrder.isEmpty {
@@ -1390,7 +1429,7 @@ actor OpenRouterService {
         }
 
         var reasoningConfig: ReasoningConfig? = nil
-        if !usingLMStudio {
+        if !usingCustomEndpoint {
             if let override = reasoningEffortOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
                !override.isEmpty {
                 reasoningConfig = ReasoningConfig(effort: override)
@@ -1411,22 +1450,19 @@ actor OpenRouterService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if usingLMStudio {
-            // LMStudio doesn't need auth but some builds expect a header
-            request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
-        } else {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(authorizationHeaderValue, forHTTPHeaderField: "Authorization")
+        if !usingCustomEndpoint {
             request.setValue("LocalAgent/1.0", forHTTPHeaderField: "HTTP-Referer")
             request.setValue("Telegram Concierge Bot", forHTTPHeaderField: "X-Title")
         }
         // Local inference and large reasoning models can legitimately take a long time.
-        request.timeoutInterval = usingLMStudio ? 1200 : 360
-        
+        request.timeoutInterval = usingCustomEndpoint ? 1200 : 360
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         request.httpBody = try encoder.encode(body)
 
-        let providerLabel = usingLMStudio ? "LMStudio" : "OpenRouter"
+        let providerLabel = usingCustomEndpoint ? currentProvider.displayName : "OpenRouter"
         print("[OpenRouterService] Sending request to \(providerLabel) (\(effectiveModel)) with \(apiMessages.count) messages")
 
         let (data, _) = try await sendChatRequestWithRetry(
@@ -2313,9 +2349,9 @@ actor OpenRouterService {
         }
 
         let usingVisionPreprocessorForDescriptions = isTextOnlyModel
-        let usingLMStudioForDescriptions = isLMStudio && !usingVisionPreprocessorForDescriptions
+        let usingCustomEndpointForDescriptions = isCustomEndpoint && !usingVisionPreprocessorForDescriptions
 
-        guard usingLMStudioForDescriptions || !apiKey.isEmpty else {
+        guard usingCustomEndpointForDescriptions || !apiKey.isEmpty else {
             throw OpenRouterError.notConfigured
         }
 
@@ -2327,7 +2363,7 @@ actor OpenRouterService {
         if usingVisionPreprocessorForDescriptions {
             descriptionModel = visionPreprocessorModel
             descriptionURL = openRouterBaseURL
-        } else if usingLMStudioForDescriptions {
+        } else if usingCustomEndpointForDescriptions {
             let descModel = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionModelKey)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             descriptionModel = descModel.isEmpty ? model : descModel
@@ -2348,7 +2384,7 @@ actor OpenRouterService {
 
         let shouldRenderPDFsForDescription = requiresPDFToImageConversion(
             for: descriptionModel,
-            usingLMStudio: usingLMStudioForDescriptions
+            usingLMStudio: usingCustomEndpointForDescriptions
         )
         
         print("[OpenRouterService] Generating descriptions for \(files.count) file(s) with \(conversationContext.count) context messages using \(descriptionModel)")
@@ -2439,7 +2475,7 @@ actor OpenRouterService {
         apiMessages.append(OpenRouterAPIMessage(role: "user", content: .parts(contentParts)))
 
         let descriptionProviderPreferences: ProviderPreferences?
-        if usingLMStudioForDescriptions {
+        if usingCustomEndpointForDescriptions {
             descriptionProviderPreferences = nil
         } else if usingVisionPreprocessorForDescriptions {
             descriptionProviderPreferences = providerPreferencesForVisionPreprocessor(descriptionModel)
@@ -2450,7 +2486,7 @@ actor OpenRouterService {
         }
 
         let descriptionReasoningConfig: ReasoningConfig?
-        if usingLMStudioForDescriptions {
+        if usingCustomEndpointForDescriptions {
             descriptionReasoningConfig = nil
         } else if usingVisionPreprocessorForDescriptions {
             descriptionReasoningConfig = visionPreprocessorReasoningConfig
@@ -2469,13 +2505,15 @@ actor OpenRouterService {
         // Make API call (uses separate endpoint for LM Studio to preserve main KV cache)
         var urlRequest = URLRequest(url: URL(string: descriptionURL)!)
         urlRequest.httpMethod = "POST"
-        if usingLMStudioForDescriptions {
-            urlRequest.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
+        if usingCustomEndpointForDescriptions {
+            // Custom endpoint (local or remote OpenAI-compatible): use its provider-specific auth.
+            urlRequest.setValue(authorizationHeaderValue, forHTTPHeaderField: "Authorization")
         } else {
+            // Vision-preprocessor path routes to OpenRouter regardless of selected provider.
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.timeoutInterval = usingLMStudioForDescriptions ? 1200 : 360
+        urlRequest.timeoutInterval = usingCustomEndpointForDescriptions ? 1200 : 360
         urlRequest.httpBody = try JSONEncoder().encode(request)
         
         let (data, response) = try await URLSession.shared.data(for: urlRequest)

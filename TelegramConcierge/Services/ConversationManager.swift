@@ -1075,6 +1075,9 @@ class ConversationManager: ObservableObject {
         case "/llm_local":
             await switchLLMProvider(to: .lmStudio)
             return true
+        case "/llm_openai":
+            await switchLLMProvider(to: .openAICompatible)
+            return true
         case "/transcribe_local":
             await switchVoiceTranscriptionProvider(to: .local)
             return true
@@ -1148,6 +1151,18 @@ class ConversationManager: ObservableObject {
                 return "Switched to Local Inference at \(resolvedBaseURL). Local model name is not configured yet."
             }
             return "Switched to Local Inference using \(model) at \(resolvedBaseURL)."
+        case .openAICompatible:
+            let model = KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let baseURL = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if baseURL.isEmpty {
+                return "Switched to OpenAI-Compatible provider. Endpoint URL is not configured yet."
+            }
+            if model.isEmpty {
+                return "Switched to OpenAI-Compatible provider at \(baseURL). Model name is not configured yet."
+            }
+            return "Switched to OpenAI-Compatible provider using \(model) at \(baseURL)."
         }
     }
 
@@ -2562,8 +2577,11 @@ class ConversationManager: ObservableObject {
         return estimatedInlineFileTokens(filename: reference.filename, url: url, mimeType: reference.mimeType, isLMStudio: isLMStudio)
     }
 
+    /// Whether the active provider uses a custom OpenAI-compatible endpoint (local inference or
+    /// remote custom API). These render PDFs/images inline rather than relying on OpenRouter's
+    /// document handling, so media token estimation must treat them the same way.
     private func currentProviderIsLMStudio() -> Bool {
-        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)) == .lmStudio
+        LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)).isCustomEndpoint
     }
 
     private func currentModelUsesTextOnlyVisionPreprocessing() -> Bool {

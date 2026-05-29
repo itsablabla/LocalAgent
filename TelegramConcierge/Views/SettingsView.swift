@@ -13,6 +13,9 @@ struct SettingsView: View {
     @State private var lmStudioModel: String = ""
     @State private var lmStudioDescriptionModel: String = ""
     @State private var lmStudioDescriptionBaseURL: String = ""
+    @State private var openAICompatibleBaseURL: String = ""
+    @State private var openAICompatibleModel: String = ""
+    @State private var openAICompatibleApiKey: String = ""
     @State private var openRouterApiKey: String = ""
     @State private var openRouterModel: String = ""
     @State private var openRouterProviders: String = ""
@@ -371,11 +374,32 @@ struct SettingsView: View {
 
     // MARK: - LLM Provider Tab
 
+    @ViewBuilder
+    private var openAICompatibleConfig: some View {
+        TextField("Base URL", text: $openAICompatibleBaseURL)
+            .textFieldStyle(.roundedBorder)
+
+        Text("Any OpenAI-compatible endpoint implementing /v1/chat/completions (e.g. https://api.example.com/v1).")
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+        TextField("Model Name", text: $openAICompatibleModel)
+            .textFieldStyle(.roundedBorder)
+
+        SecureField("API Key", text: $openAICompatibleApiKey)
+            .textFieldStyle(.roundedBorder)
+
+        Text("Sent as a Bearer token to your endpoint. Use a multimodal model so the assistant can see images and documents.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+    }
+
     private var llmProviderTab: some View {
         Form {
             Section {
                 Picker("LLM Provider", selection: $llmProvider) {
-                    Text("Local Inference").tag("lmstudio")
+                    Text("Local").tag("lmstudio")
+                    Text("OpenAI-Compatible").tag("openai_compatible")
                     Text("OpenRouter").tag("openrouter")
                 }
                 .pickerStyle(.segmented)
@@ -445,10 +469,14 @@ struct SettingsView: View {
                     }
                 }
 
+                if llmProvider == "openai_compatible" {
+                    openAICompatibleConfig
+                }
+
                 SecureField("OpenRouter API Key", text: $openRouterApiKey)
                     .textFieldStyle(.roundedBorder)
 
-                if llmProvider == "lmstudio" {
+                if llmProvider != "openrouter" {
                     Text("OpenRouter API key is still needed for web search and deep research. Your conversation data is not sent to OpenRouter.")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -579,6 +607,9 @@ struct SettingsView: View {
         .onChange(of: lmStudioModel) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: lmStudioDescriptionModel) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: lmStudioDescriptionBaseURL) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: openAICompatibleBaseURL) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: openAICompatibleModel) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: openAICompatibleApiKey) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterApiKey) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterModel) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterProviders) { _ in autoSave { saveOpenRouterSection() } }
@@ -1583,6 +1614,9 @@ struct SettingsView: View {
         lmStudioModel = KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? ""
         lmStudioDescriptionModel = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionModelKey) ?? ""
         lmStudioDescriptionBaseURL = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionBaseURLKey) ?? ""
+        openAICompatibleBaseURL = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey) ?? ""
+        openAICompatibleModel = KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey) ?? ""
+        openAICompatibleApiKey = KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey) ?? ""
         openRouterApiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? ""
         openRouterModel = KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? ""
         openRouterProviders = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey) ?? ""
@@ -1946,6 +1980,25 @@ struct SettingsView: View {
             try? KeychainHelper.save(key: KeychainHelper.lmStudioDescriptionBaseURLKey, value: trimmedDescURL)
         } else {
             try? KeychainHelper.delete(key: KeychainHelper.lmStudioDescriptionBaseURLKey)
+        }
+        // Save OpenAI-compatible provider settings
+        let trimmedOAICBaseURL = openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedOAICBaseURL.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openAICompatibleBaseURLKey, value: trimmedOAICBaseURL)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.openAICompatibleBaseURLKey)
+        }
+        let trimmedOAICModel = openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedOAICModel.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openAICompatibleModelKey, value: trimmedOAICModel)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.openAICompatibleModelKey)
+        }
+        let trimmedOAICApiKey = openAICompatibleApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedOAICApiKey.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openAICompatibleApiKeyKey, value: trimmedOAICApiKey)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.openAICompatibleApiKeyKey)
         }
         // Save OpenRouter settings (always needed for web search)
         try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
@@ -2424,37 +2477,55 @@ struct SettingsView: View {
         let provider = LLMProvider.fromStoredValue(llmProvider)
         let trimmedOpenRouterAPIKey = openRouterApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        func configuredURL() -> URL {
-            if provider == .lmStudio {
-                var base = lmStudioBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                if base.isEmpty { base = KeychainHelper.defaultLMStudioBaseURL }
-                while base.hasSuffix("/") { base.removeLast() }
-                if base.hasSuffix("/chat/completions"), let url = URL(string: base) {
-                    return url
-                }
-                if !base.hasSuffix("/v1") {
-                    base += "/v1"
-                }
-                return URL(string: base + "/chat/completions")!
+        func normalizeCompletionsURL(_ raw: String, fallback: String) -> URL {
+            var base = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if base.isEmpty { base = fallback }
+            while base.hasSuffix("/") { base.removeLast() }
+            if base.hasSuffix("/chat/completions"), let url = URL(string: base) {
+                return url
             }
-            return URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+            if !base.hasSuffix("/v1") {
+                base += "/v1"
+            }
+            return URL(string: base + "/chat/completions")!
+        }
+
+        func configuredURL() -> URL {
+            switch provider {
+            case .lmStudio:
+                return normalizeCompletionsURL(lmStudioBaseURL, fallback: KeychainHelper.defaultLMStudioBaseURL)
+            case .openAICompatible:
+                return normalizeCompletionsURL(openAICompatibleBaseURL, fallback: "")
+            case .openRouter:
+                return URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+            }
         }
 
         let configuredModel: String = {
             switch provider {
             case .lmStudio:
                 return lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .openAICompatible:
+                return openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
             case .openRouter:
                 let configured = openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 return configured.isEmpty ? "~google/gemini-flash-latest" : configured
             }
         }()
 
-        if provider == .lmStudio && configuredModel.isEmpty {
+        if provider.isCustomEndpoint && configuredModel.isEmpty {
             throw NSError(
                 domain: "StructureAI",
                 code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "LMStudio model name is not configured"]
+                userInfo: [NSLocalizedDescriptionKey: "Model name is not configured for the selected provider"]
+            )
+        }
+
+        if provider == .openAICompatible && openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw NSError(
+                domain: "StructureAI",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Endpoint URL is not configured for the OpenAI-compatible provider"]
             )
         }
 
@@ -2552,10 +2623,15 @@ struct SettingsView: View {
         var request = URLRequest(url: configuredURL())
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if provider == .lmStudio {
+        switch provider {
+        case .lmStudio:
             request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = 1200
-        } else {
+        case .openAICompatible:
+            let key = openAICompatibleApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 1200
+        case .openRouter:
             request.setValue("Bearer \(trimmedOpenRouterAPIKey)", forHTTPHeaderField: "Authorization")
             request.setValue("LocalAgent/1.0", forHTTPHeaderField: "HTTP-Referer")
             request.setValue("Telegram Concierge Bot", forHTTPHeaderField: "X-Title")
