@@ -11,19 +11,21 @@ Do not fake spreadsheet verification with screenshots alone. Open the workbook p
 
 ## Reliable Workflow
 
-1. Define the workbook schema: sheets, columns, row counts, formulas, formats, validation, charts/tables.
-2. Choose the authoring path: `openpyxl`, pandas plus `openpyxl`, or template editing.
-3. Write typed values, formulas, widths, formats, freeze panes, filters, and sheets.
-4. Reopen the saved file and verify structure programmatically.
-5. If formulas matter, recalculate with Excel/LibreOffice when available or clearly verify formula text/ranges.
-6. If visual layout matters, render/convert to PDF or inspect in a spreadsheet app when available.
-7. Fix objective defects and repeat up to 3 times.
+1. Decide the mode: create new workbook, edit existing workbook, template-follow, or CSV/data conversion.
+2. For existing workbooks, inspect and preserve before editing. Never rebuild unless asked.
+3. Define the workbook schema: sheets, columns, row counts, formulas, formats, validation, charts/tables.
+4. Choose the authoring path: `openpyxl`, pandas plus `openpyxl`, or template editing.
+5. Write typed values, formulas, widths, formats, freeze panes, filters, and sheets.
+6. Reopen the saved file and verify structure programmatically.
+7. If formulas matter, recalculate with Excel/LibreOffice when available or clearly verify formula text/ranges.
+8. If visual layout matters, render/convert to PDF or inspect in a spreadsheet app when available.
+9. Fix objective defects and repeat up to 3 times.
 
 Do not overwrite the user's original workbook unless explicitly asked.
 
 ## Tool Choice
 
-Use `openpyxl` for most `.xlsx` creation and editing:
+Use `openpyxl` for most `.xlsx` creation and editing. This `Workbook()` pattern is only for new workbooks:
 
 ```python
 from openpyxl import Workbook
@@ -41,6 +43,23 @@ ws.freeze_panes = "A2"
 wb.save("output.xlsx")
 ```
 
+For existing workbooks, start by loading the file:
+
+```python
+from pathlib import Path
+from shutil import copyfile
+from openpyxl import load_workbook
+
+src = Path("input.xlsx")
+out = Path("output.xlsx")
+copyfile(src, out)
+
+wb = load_workbook(out)
+ws = wb["Sheet1"]
+ws["B2"] = 42
+wb.save(out)
+```
+
 Use pandas when the source data already lives naturally in DataFrames:
 
 ```python
@@ -50,7 +69,73 @@ df.to_excel("output.xlsx", index=False, sheet_name="Data")
 
 Then reopen with `openpyxl` for formatting, formulas, widths, freeze panes, filters, and validation.
 
-Use an existing workbook as a template when the user supplies one. Preserve formulas, named ranges, charts, hidden sheets, and existing formatting unless the user asks to redesign.
+Use pandas only for new workbooks, new sheets, raw data imports, or controlled table replacement. Do not use pandas `to_excel()` to rewrite an existing workbook unless the user asked for a rebuild; it can drop formulas, formatting, charts, images, tables, filters, hidden sheets, named ranges, and workbook properties.
+
+Use an existing workbook as the starting point when the user supplies one. Preserve formulas, named ranges, charts, images, hidden sheets, row/column dimensions, filters, freeze panes, merged cells, validation, protection, and existing formatting unless the user asks to redesign.
+
+## Existing Workbook Edits
+
+When the user asks to edit an existing `.xlsx`, this mode overrides creation guidance.
+
+Hard rules:
+
+- Do not start from `Workbook()`.
+- Do not export the whole workbook through pandas.
+- Do not recreate sheets that already exist unless the user asks for a rebuild.
+- Save to a new output path unless the user explicitly asks to overwrite.
+- Edit only the requested cells, ranges, rows, columns, or sheets.
+- Preserve unknown sheets and workbook-level objects.
+- Preserve formulas unless the requested edit changes them.
+- Preserve existing formatting, widths, heights, filters, freeze panes, hidden rows/columns/sheets, charts, images, comments, data validation, merged cells, named ranges, and protection whenever possible.
+
+Before editing, make a small manifest:
+
+```python
+from openpyxl import load_workbook
+
+def workbook_manifest(path):
+    wb = load_workbook(path, data_only=False)
+    try:
+        defined_names = sorted(wb.defined_names.keys())
+    except AttributeError:
+        defined_names = sorted(dn.name for dn in wb.defined_names.definedName)
+    return {
+        "sheets": wb.sheetnames,
+        "defined_names": defined_names,
+        "tables": {ws.title: sorted(ws.tables.keys()) for ws in wb.worksheets},
+        "charts": {ws.title: len(ws._charts) for ws in wb.worksheets},
+        "images": {ws.title: len(ws._images) for ws in wb.worksheets},
+        "dimensions": {ws.title: (ws.max_row, ws.max_column) for ws in wb.worksheets},
+        "hidden_sheets": [ws.title for ws in wb.worksheets if ws.sheet_state != "visible"],
+    }
+
+before = workbook_manifest("input.xlsx")
+```
+
+After editing, compare the manifest. Any sheet, table, chart, image, named range, hidden-sheet state, or unexpected dimension change must be intentional and explainable.
+
+For targeted edits, verify only the intended cells changed when practical:
+
+```python
+from openpyxl import load_workbook
+
+before = load_workbook("input.xlsx", data_only=False)
+after = load_workbook("output.xlsx", data_only=False)
+
+for sheet in before.sheetnames:
+    if sheet not in after.sheetnames:
+        print("missing sheet:", sheet)
+        continue
+    ws0, ws1 = before[sheet], after[sheet]
+    for row in range(1, max(ws0.max_row, ws1.max_row) + 1):
+        for col in range(1, max(ws0.max_column, ws1.max_column) + 1):
+            a = ws0.cell(row, col).value
+            b = ws1.cell(row, col).value
+            if a != b:
+                print(sheet, row, col, a, "->", b)
+```
+
+Use that diff to confirm changes are limited to the request. For large files, restrict the comparison to relevant sheets/ranges plus manifest checks.
 
 ## Schema First
 
@@ -131,6 +216,7 @@ Check:
 - No stray blank rows/columns inside tables.
 - Freeze panes, filters, widths, number formats, and conditional formatting are present when expected.
 - Existing workbooks did not lose sheets, formulas, charts, or named ranges unintentionally.
+- Existing workbook edits are limited to requested cells/ranges/sheets plus any intentional dependent updates.
 
 For formula cached values after recalculation, open with `data_only=True`:
 
@@ -166,6 +252,7 @@ libreoffice --headless --convert-to pdf output.xlsx
 | Columns too narrow | No auto-fit in openpyxl | Set widths explicitly based on content |
 | User edits wrong cells | Inputs and formulas mixed | Separate input cells, summaries, and protected/formula areas |
 | Existing formulas lost | Rebuilt sheet from scratch | Preserve workbook and edit only required cells/ranges |
+| Existing formatting/charts vanished | Workbook rewritten through pandas or `Workbook()` | Load/copy the original workbook and edit in place |
 
 ## When To Redirect
 
