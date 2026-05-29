@@ -189,6 +189,7 @@ extension KeychainHelper {
     static let openAICompatibleBaseURLKey = "openai_compatible_base_url"
     static let openAICompatibleModelKey = "openai_compatible_model"
     static let openAICompatibleApiKeyKey = "openai_compatible_api_key"
+    static let openAICompatibleReasoningEffortKey = "openai_compatible_reasoning_effort"
 
     // Text-Only Model Settings
     static let textOnlyModelEnabledKey = "text_only_model_enabled"  // "true" or absent

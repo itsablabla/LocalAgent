@@ -135,14 +135,28 @@ actor OpenRouterService {
         return effort.isEmpty ? nil : ReasoningConfig(effort: effort)
     }
 
-    /// Returns the user-configured reasoning effort, defaulting to "high" for Gemini models
+    /// Returns the user-configured reasoning effort for the current provider.
+    /// - OpenRouter: defaults to "high" when unspecified (preserves existing behavior).
+    /// - OpenAI-Compatible: reads its own setting; "Not Specified" (empty) means omit the
+    ///   field entirely so arbitrary endpoints / non-reasoning models aren't forced to reason.
+    /// - Local (lmStudio): never sends a reasoning effort.
     private var reasoningEffort: String? {
-        guard !isCustomEndpoint else { return nil }
-        guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
-              !effort.isEmpty else {
-            return "high"
+        switch currentProvider {
+        case .openRouter:
+            guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
+                  !effort.isEmpty else {
+                return "high"
+            }
+            return effort
+        case .openAICompatible:
+            guard let effort = KeychainHelper.load(key: KeychainHelper.openAICompatibleReasoningEffortKey),
+                  !effort.isEmpty else {
+                return nil
+            }
+            return effort
+        case .lmStudio:
+            return nil
         }
-        return effort
     }
 
     /// Whether the user has marked the current model as text-only (no vision capabilities)
@@ -1428,13 +1442,28 @@ actor OpenRouterService {
             }
         }
 
-        var reasoningConfig: ReasoningConfig? = nil
-        if !usingCustomEndpoint {
+        // Resolve the effective reasoning effort for the current provider. An explicit
+        // per-call override (e.g. from a subagent) wins; otherwise fall back to the
+        // provider-configured value. Local (lmStudio) never sends reasoning.
+        let effectiveReasoningEffort: String? = {
+            if currentProvider == .lmStudio { return nil }
             if let override = reasoningEffortOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
                !override.isEmpty {
-                reasoningConfig = ReasoningConfig(effort: override)
-            } else if let effort = reasoningEffort {
+                return override
+            }
+            return reasoningEffort
+        }()
+
+        var reasoningConfig: ReasoningConfig? = nil
+        var reasoningEffortField: String? = nil
+        if let effort = effectiveReasoningEffort {
+            switch currentProvider {
+            case .openRouter:
                 reasoningConfig = ReasoningConfig(effort: effort)
+            case .openAICompatible:
+                reasoningEffortField = effort
+            case .lmStudio:
+                break
             }
         }
 
@@ -1443,7 +1472,8 @@ actor OpenRouterService {
             messages: apiMessages,
             tools: tools,
             provider: providerPrefs,
-            reasoning: reasoningConfig
+            reasoning: reasoningConfig,
+            reasoningEffort: reasoningEffortField
         )
 
         let url = URL(string: baseURL)!
@@ -2486,8 +2516,11 @@ actor OpenRouterService {
         }
 
         let descriptionReasoningConfig: ReasoningConfig?
+        var descriptionReasoningEffortField: String? = nil
         if usingCustomEndpointForDescriptions {
             descriptionReasoningConfig = nil
+            // For OpenAI-Compatible this resolves to the configured effort; for Local it's nil.
+            descriptionReasoningEffortField = reasoningEffort
         } else if usingVisionPreprocessorForDescriptions {
             descriptionReasoningConfig = visionPreprocessorReasoningConfig
         } else {
@@ -2499,7 +2532,8 @@ actor OpenRouterService {
             messages: apiMessages,
             tools: nil,
             provider: descriptionProviderPreferences,
-            reasoning: descriptionReasoningConfig
+            reasoning: descriptionReasoningConfig,
+            reasoningEffort: descriptionReasoningEffortField
         )
 
         // Make API call (uses separate endpoint for LM Studio to preserve main KV cache)
@@ -2599,7 +2633,20 @@ struct OpenRouterRequest: Codable {
     let messages: [OpenRouterAPIMessage]
     let tools: [ToolDefinition]?
     let provider: ProviderPreferences?
+    /// OpenRouter-style reasoning object (used for the OpenRouter provider).
     let reasoning: ReasoningConfig?
+    /// OpenAI-standard top-level reasoning effort string (used for OpenAI-Compatible
+    /// endpoints). Omitted from the encoded body when nil.
+    var reasoningEffort: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case tools
+        case provider
+        case reasoning
+        case reasoningEffort = "reasoning_effort"
+    }
 }
 
 struct OpenRouterAPIMessage: Codable {

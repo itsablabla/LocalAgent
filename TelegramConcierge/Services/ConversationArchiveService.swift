@@ -93,14 +93,27 @@ actor ConversationArchiveService {
     }
     private var apiKey: String = ""
 
-    /// Returns the user-configured reasoning effort, defaulting to "high" on OpenRouter.
+    /// Returns the user-configured reasoning effort for the current provider.
+    /// - OpenRouter: defaults to "high" when unspecified (preserves existing behavior).
+    /// - OpenAI-Compatible: reads its own setting; "Not Specified" (empty) means omit it.
+    /// - Local (lmStudio): never sends a reasoning effort.
     private var reasoningEffort: String? {
-        guard !isCustomEndpoint else { return nil }
-        guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
-              !effort.isEmpty else {
-            return "high"
+        switch currentProvider {
+        case .openRouter:
+            guard let effort = KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey),
+                  !effort.isEmpty else {
+                return "high"
+            }
+            return effort
+        case .openAICompatible:
+            guard let effort = KeychainHelper.load(key: KeychainHelper.openAICompatibleReasoningEffortKey),
+                  !effort.isEmpty else {
+                return nil
+            }
+            return effort
+        case .lmStudio:
+            return nil
         }
-        return effort
     }
 
     /// Stable first message for all archive-memory LLM requests.
@@ -1403,6 +1416,7 @@ actor ConversationArchiveService {
             let max_tokens: Int?
             let temperature: Double
             let reasoning: ReasoningConfig?
+            let reasoning_effort: String?
         }
         
         struct Response: Decodable {
@@ -1423,12 +1437,29 @@ actor ConversationArchiveService {
         requestMessages.append(.init(role: "system", content: systemPrompt))
         requestMessages.append(.init(role: "user", content: userPrompt))
 
+        // OpenRouter uses the `reasoning` object; OpenAI-Compatible uses the standard
+        // top-level `reasoning_effort` string. Local (lmStudio) sends neither.
+        let archiveReasoningConfig: Request.ReasoningConfig?
+        let archiveReasoningEffort: String?
+        switch currentProvider {
+        case .openRouter:
+            archiveReasoningConfig = reasoningEffort.map { .init(effort: $0) }
+            archiveReasoningEffort = nil
+        case .openAICompatible:
+            archiveReasoningConfig = nil
+            archiveReasoningEffort = reasoningEffort
+        case .lmStudio:
+            archiveReasoningConfig = nil
+            archiveReasoningEffort = nil
+        }
+
         let body = Request(
             model: model,
             messages: requestMessages,
             max_tokens: maxTokens,
             temperature: 0.3,
-            reasoning: reasoningEffort.map { .init(effort: $0) }
+            reasoning: archiveReasoningConfig,
+            reasoning_effort: archiveReasoningEffort
         )
         
         var request = URLRequest(url: baseURL)

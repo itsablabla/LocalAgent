@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var openAICompatibleBaseURL: String = ""
     @State private var openAICompatibleModel: String = ""
     @State private var openAICompatibleApiKey: String = ""
+    @State private var openAICompatibleReasoningEffort: String = ""
     @State private var openRouterApiKey: String = ""
     @State private var openRouterModel: String = ""
     @State private var openRouterProviders: String = ""
@@ -392,6 +393,19 @@ struct SettingsView: View {
         Text("Sent as a Bearer token to your endpoint. Use a multimodal model so the assistant can see images and documents.")
             .font(.caption)
             .foregroundColor(.secondary)
+
+        Picker("Reasoning Effort", selection: $openAICompatibleReasoningEffort) {
+            Text("Not Specified").tag("")
+            Text("Minimal").tag("minimal")
+            Text("Low").tag("low")
+            Text("Medium").tag("medium")
+            Text("High").tag("high")
+        }
+        .pickerStyle(.menu)
+
+        Text("Sent as the standard OpenAI reasoning_effort field on every request to this provider. Leave as Not Specified to let the endpoint use its own default.")
+            .font(.caption)
+            .foregroundColor(.secondary)
     }
 
     private var llmProviderTab: some View {
@@ -610,6 +624,7 @@ struct SettingsView: View {
         .onChange(of: openAICompatibleBaseURL) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openAICompatibleModel) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openAICompatibleApiKey) { _ in autoSave { saveOpenRouterSection() } }
+        .onChange(of: openAICompatibleReasoningEffort) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterApiKey) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterModel) { _ in autoSave { saveOpenRouterSection() } }
         .onChange(of: openRouterProviders) { _ in autoSave { saveOpenRouterSection() } }
@@ -1617,6 +1632,7 @@ struct SettingsView: View {
         openAICompatibleBaseURL = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey) ?? ""
         openAICompatibleModel = KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey) ?? ""
         openAICompatibleApiKey = KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey) ?? ""
+        openAICompatibleReasoningEffort = KeychainHelper.load(key: KeychainHelper.openAICompatibleReasoningEffortKey) ?? ""
         openRouterApiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? ""
         openRouterModel = KeychainHelper.load(key: KeychainHelper.openRouterModelKey) ?? ""
         openRouterProviders = KeychainHelper.load(key: KeychainHelper.openRouterProvidersKey) ?? ""
@@ -1999,6 +2015,11 @@ struct SettingsView: View {
             try? KeychainHelper.save(key: KeychainHelper.openAICompatibleApiKeyKey, value: trimmedOAICApiKey)
         } else {
             try? KeychainHelper.delete(key: KeychainHelper.openAICompatibleApiKeyKey)
+        }
+        if !openAICompatibleReasoningEffort.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openAICompatibleReasoningEffortKey, value: openAICompatibleReasoningEffort)
+        } else {
+            try? KeychainHelper.delete(key: KeychainHelper.openAICompatibleReasoningEffortKey)
         }
         // Save OpenRouter settings (always needed for web search)
         try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
@@ -2537,11 +2558,23 @@ struct SettingsView: View {
             )
         }
 
+        // Resolve reasoning effort for the current provider:
+        // - OpenRouter: default "high" when unspecified (existing behavior).
+        // - OpenAI-Compatible: read its own setting; empty means omit.
+        // - Local (lmStudio): never sends reasoning.
         let configuredReasoningEffort: String? = {
-            guard provider == .openRouter else { return nil }
-            let stored = (KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return stored.isEmpty ? "high" : stored
+            switch provider {
+            case .openRouter:
+                let stored = (KeychainHelper.load(key: KeychainHelper.openRouterReasoningEffortKey) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return stored.isEmpty ? "high" : stored
+            case .openAICompatible:
+                let stored = (KeychainHelper.load(key: KeychainHelper.openAICompatibleReasoningEffortKey) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return stored.isEmpty ? nil : stored
+            case .lmStudio:
+                return nil
+            }
         }()
 
         // Load existing structured context
@@ -2617,7 +2650,14 @@ struct SettingsView: View {
         ]
         var requestPayload = body
         if let configuredReasoningEffort {
-            requestPayload["reasoning"] = ["effort": configuredReasoningEffort]
+            switch provider {
+            case .openRouter:
+                requestPayload["reasoning"] = ["effort": configuredReasoningEffort]
+            case .openAICompatible:
+                requestPayload["reasoning_effort"] = configuredReasoningEffort
+            case .lmStudio:
+                break
+            }
         }
         
         var request = URLRequest(url: configuredURL())
