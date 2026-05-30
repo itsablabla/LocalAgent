@@ -76,6 +76,22 @@ actor OpenRouterService {
         }
     }
 
+    private static func isOpenCodeReasoningContentModel(_ model: String) -> Bool {
+        let normalized = model.lowercased()
+        return normalized.contains("kimi-k2.6")
+            || normalized.contains("kimi-k2p6")
+            || normalized.contains("deepseek-v4-pro")
+            || normalized.contains("glm-5.1")
+    }
+
+    private static func shouldSendOpenCodeThinking(_ model: String) -> Bool {
+        let normalized = model.lowercased()
+        // OpenCode Go returned an internal server error when GLM 5.1 received
+        // both `thinking` and `reasoning_effort`; `reasoning_effort` alone still
+        // returns `reasoning_content` for GLM.
+        return !normalized.contains("glm-5.1")
+    }
+
     /// Returns the user-configured provider order, or nil if not set.
     /// Falls back to ["google-ai-studio"] for the default Gemini model when no provider is configured,
     /// because OpenRouter may route it to unreliable providers otherwise.
@@ -1454,6 +1470,9 @@ actor OpenRouterService {
             return reasoningEffort
         }()
 
+        let useReasoningContent = currentProvider == .openAICompatible && Self.isOpenCodeReasoningContentModel(effectiveModel)
+        let useThinkingConfig = useReasoningContent && Self.shouldSendOpenCodeThinking(effectiveModel)
+
         var reasoningConfig: ReasoningConfig? = nil
         var reasoningEffortField: String? = nil
         if let effort = effectiveReasoningEffort {
@@ -1461,19 +1480,27 @@ actor OpenRouterService {
             case .openRouter:
                 reasoningConfig = ReasoningConfig(effort: effort)
             case .openAICompatible:
-                reasoningEffortField = effort
+                if !useThinkingConfig {
+                    reasoningEffortField = effort
+                }
             case .lmStudio:
                 break
             }
         }
 
+        let requestMessages = apiMessages.map {
+            $0.sanitizedForProvider(currentProvider, useReasoningContent: useReasoningContent)
+        }
+
         let body = OpenRouterRequest(
             model: effectiveModel,
-            messages: apiMessages,
+            messages: requestMessages,
             tools: tools,
             provider: providerPrefs,
             reasoning: reasoningConfig,
-            reasoningEffort: reasoningEffortField
+            reasoningEffort: reasoningEffortField,
+            thinking: useThinkingConfig ? ThinkingConfig(type: "enabled") : nil,
+            reasoningHistory: useReasoningContent ? "preserved" : nil
         )
 
         let url = URL(string: baseURL)!
@@ -1565,7 +1592,7 @@ actor OpenRouterService {
                 assistantMessage: AssistantToolCallMessage(
                     content: choice.message.content,
                     toolCalls: toolCalls,
-                    reasoning: choice.message.reasoning,
+                    reasoning: choice.message.reasoning ?? choice.message.reasoningContent,
                     reasoningDetails: choice.message.reasoningDetails
                 ),
                 calls: toolCalls,
@@ -2628,6 +2655,10 @@ struct ReasoningConfig: Codable {
     let effort: String
 }
 
+struct ThinkingConfig: Codable {
+    let type: String
+}
+
 struct OpenRouterRequest: Codable {
     let model: String
     let messages: [OpenRouterAPIMessage]
@@ -2638,6 +2669,11 @@ struct OpenRouterRequest: Codable {
     /// OpenAI-standard top-level reasoning effort string (used for OpenAI-Compatible
     /// endpoints). Omitted from the encoded body when nil.
     var reasoningEffort: String? = nil
+    /// Fireworks/Kimi thinking toggle. Used for Kimi K2.6 on OpenCode Go; must not
+    /// be sent together with `reasoning_effort`.
+    var thinking: ThinkingConfig? = nil
+    /// Fireworks/Kimi prompt-formatting control for historical reasoning content.
+    var reasoningHistory: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -2646,6 +2682,8 @@ struct OpenRouterRequest: Codable {
         case provider
         case reasoning
         case reasoningEffort = "reasoning_effort"
+        case thinking
+        case reasoningHistory = "reasoning_history"
     }
 }
 
@@ -2656,6 +2694,7 @@ struct OpenRouterAPIMessage: Codable {
     var toolCallId: String?
     var reasoning: JSONValue?
     var reasoningDetails: JSONValue?
+    var reasoningContent: JSONValue?
     
     enum CodingKeys: String, CodingKey {
         case role
@@ -2664,6 +2703,7 @@ struct OpenRouterAPIMessage: Codable {
         case toolCallId = "tool_call_id"
         case reasoning
         case reasoningDetails = "reasoning_details"
+        case reasoningContent = "reasoning_content"
     }
     
     init(
@@ -2672,7 +2712,8 @@ struct OpenRouterAPIMessage: Codable {
         toolCalls: [ToolCall]? = nil,
         toolCallId: String? = nil,
         reasoning: JSONValue? = nil,
-        reasoningDetails: JSONValue? = nil
+        reasoningDetails: JSONValue? = nil,
+        reasoningContent: JSONValue? = nil
     ) {
         self.role = role
         self.content = content
@@ -2680,6 +2721,7 @@ struct OpenRouterAPIMessage: Codable {
         self.toolCallId = toolCallId
         self.reasoning = reasoning
         self.reasoningDetails = reasoningDetails
+        self.reasoningContent = reasoningContent
     }
 
     /// Returns a copy with cache_control added to the last content block.
@@ -2712,8 +2754,83 @@ struct OpenRouterAPIMessage: Codable {
             toolCalls: toolCalls,
             toolCallId: toolCallId,
             reasoning: reasoning,
-            reasoningDetails: reasoningDetails
+            reasoningDetails: reasoningDetails,
+            reasoningContent: reasoningContent
         )
+    }
+
+    /// OpenRouter and local inference stacks that LocalAgent targets can accept
+    /// assistant reasoning metadata. Some OpenCode Go models use the
+    /// `reasoning_content` field. Other remote OpenAI-compatible endpoints are
+    /// often stricter and may reject unknown message keys, so preserve reasoning
+    /// as portable assistant text instead of sending provider-specific fields.
+    func sanitizedForProvider(_ provider: LLMProvider, useReasoningContent: Bool) -> OpenRouterAPIMessage {
+        switch provider {
+        case .openRouter, .lmStudio:
+            return self
+        case .openAICompatible:
+            if useReasoningContent {
+                return OpenRouterAPIMessage(
+                    role: role,
+                    content: content,
+                    toolCalls: toolCalls,
+                    toolCallId: toolCallId,
+                    reasoningContent: reasoningContent ?? reasoning
+                )
+            }
+            return OpenRouterAPIMessage(
+                role: role,
+                content: contentWithReasoningTranscript(),
+                toolCalls: toolCalls,
+                toolCallId: toolCallId
+            )
+        }
+    }
+
+    private func contentWithReasoningTranscript() -> MessageContent? {
+        guard role == "assistant", let transcript = reasoningTranscriptBlock() else {
+            return content
+        }
+
+        switch content {
+        case .none:
+            return .text(transcript)
+        case .text(let text):
+            return .text(transcript + "\n\n" + text)
+        case .parts(let parts):
+            return .parts([.text(transcript)] + parts)
+        }
+    }
+
+    private func reasoningTranscriptBlock() -> String? {
+        var sections: [String] = []
+        if let reasoning {
+            sections.append("reasoning:\n" + Self.reasoningText(reasoning))
+        }
+        if let reasoningDetails {
+            sections.append("reasoning_details:\n" + Self.reasoningText(reasoningDetails))
+        }
+        guard !sections.isEmpty else { return nil }
+        return """
+        [previous assistant internal reasoning]
+        This reasoning was produced by an earlier assistant turn. Use it only for task continuity; do not quote or reveal it to the user.
+
+        \(sections.joined(separator: "\n\n"))
+        [/previous assistant internal reasoning]
+        """
+    }
+
+    private static func reasoningText(_ value: JSONValue) -> String {
+        if case .string(let string) = value {
+            return string
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(value),
+           let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        return "\(value)"
     }
 }
 
@@ -2906,6 +3023,7 @@ struct OpenRouterResponseMessage: Codable {
     let toolCalls: [ToolCall]?
     let reasoning: JSONValue?
     let reasoningDetails: JSONValue?
+    let reasoningContent: JSONValue?
     
     enum CodingKeys: String, CodingKey {
         case role
@@ -2913,6 +3031,7 @@ struct OpenRouterResponseMessage: Codable {
         case toolCalls = "tool_calls"
         case reasoning
         case reasoningDetails = "reasoning_details"
+        case reasoningContent = "reasoning_content"
     }
 }
 
