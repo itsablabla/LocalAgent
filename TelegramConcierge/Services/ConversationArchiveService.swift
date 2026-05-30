@@ -1421,7 +1421,15 @@ actor ConversationArchiveService {
         
         struct Response: Decodable {
             struct Choice: Decodable {
-                struct Message: Decodable { let content: String }
+                struct Message: Decodable {
+                    let content: String?
+                    let toolCalls: [ToolCall]?
+
+                    enum CodingKeys: String, CodingKey {
+                        case content
+                        case toolCalls = "tool_calls"
+                    }
+                }
                 let message: Message
             }
             let choices: [Choice]
@@ -1453,34 +1461,52 @@ actor ConversationArchiveService {
             archiveReasoningEffort = nil
         }
 
-        let body = Request(
-            model: model,
-            messages: requestMessages,
-            max_tokens: maxTokens,
-            temperature: 0.3,
-            reasoning: archiveReasoningConfig,
-            reasoning_effort: archiveReasoningEffort
-        )
-        
-        var request = URLRequest(url: baseURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(authorizationHeaderValue, forHTTPHeaderField: "Authorization")
-        if !usingCustomEndpoint {
-            request.setValue("LocalAgent/1.0", forHTTPHeaderField: "HTTP-Referer")
-            request.setValue("Telegram Concierge Bot", forHTTPHeaderField: "X-Title")
+        for attempt in 0...4 {
+            let body = Request(
+                model: model,
+                messages: requestMessages,
+                max_tokens: maxTokens,
+                temperature: 0.3,
+                reasoning: archiveReasoningConfig,
+                reasoning_effort: archiveReasoningEffort
+            )
+
+            var request = URLRequest(url: baseURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(authorizationHeaderValue, forHTTPHeaderField: "Authorization")
+            if !usingCustomEndpoint {
+                request.setValue("LocalAgent/1.0", forHTTPHeaderField: "HTTP-Referer")
+                request.setValue("Telegram Concierge Bot", forHTTPHeaderField: "X-Title")
+            }
+            request.timeoutInterval = usingCustomEndpoint ? 1200 : 360
+            request.httpBody = try JSONEncoder().encode(body)
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw ArchiveError.apiError
+            }
+
+            let decoded = try JSONDecoder().decode(Response.self, from: data)
+            let message = decoded.choices.first?.message
+            if let toolCalls = message?.toolCalls, !toolCalls.isEmpty {
+                guard attempt < 4 else { throw ArchiveError.apiError }
+                let names = toolCalls.map { $0.function.name }.joined(separator: ", ")
+                requestMessages.append(.init(
+                    role: "user",
+                    content: """
+                    Your previous response attempted to call tool(s): \(names).
+                    Tool use is disabled for this archive/user-context maintenance request. No tools were executed.
+                    Return the requested artifact as plain text only. Do not emit tool calls.
+                    """
+                ))
+                continue
+            }
+            return message?.content ?? ""
         }
-        request.timeoutInterval = usingCustomEndpoint ? 1200 : 360
-        request.httpBody = try JSONEncoder().encode(body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw ArchiveError.apiError
-        }
-        
-        let decoded = try JSONDecoder().decode(Response.self, from: data)
-        return decoded.choices.first?.message.content ?? ""
+
+        throw ArchiveError.apiError
     }
     
     // MARK: - Helpers

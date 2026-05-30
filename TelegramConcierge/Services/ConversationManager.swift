@@ -2171,23 +2171,55 @@ class ConversationManager: ObservableObject {
         }
 
         try Task.checkCancellation()
-        let finalResponse = try await openRouterService.generateResponse(
-            messages: messagesForLLM,
-            imagesDirectory: imagesDirectory,
-            documentsDirectory: documentsDirectory,
-            tools: lastToolsForRound,
-            toolResultMessages: toolInteractions,
-            calendarContext: calendarContext,
-            emailContext: emailContext,
-            chunkSummaries: chunkSummaries.isEmpty ? nil : chunkSummaries,
-            totalChunkCount: totalChunkCount,
-            currentUserMessageId: currentUserMessageId,
-            turnStartDate: systemPromptDate,
-            tailSystemMessage: forceFinishTail,
-            deferredMCPSummaries: lastDeferredSummaries.isEmpty ? nil : lastDeferredSummaries
-        )
-        if let finalSpendUSD = spendUSD(from: finalResponse), finalSpendUSD > 0 {
-            KeychainHelper.recordOpenRouterSpend(finalSpendUSD)
+        var finalResponse: LLMResponse?
+        var finalForceInteractions = toolInteractions
+        var finalForceSpendUSD: Double = 0
+        for attempt in 0...4 {
+            let tail = attempt == 0
+                ? forceFinishTail
+                : """
+                \(forceFinishTail)
+
+                [FORCE-FINISH RETRY \(attempt)/4]
+                The tool call(s) you requested were not executed because this is a final-summary pass.
+                Tool use remains disabled for this pass. Return plain text only.
+                """
+            let response = try await openRouterService.generateResponse(
+                messages: messagesForLLM,
+                imagesDirectory: imagesDirectory,
+                documentsDirectory: documentsDirectory,
+                tools: lastToolsForRound,
+                toolResultMessages: finalForceInteractions,
+                calendarContext: calendarContext,
+                emailContext: emailContext,
+                chunkSummaries: chunkSummaries.isEmpty ? nil : chunkSummaries,
+                totalChunkCount: totalChunkCount,
+                currentUserMessageId: currentUserMessageId,
+                turnStartDate: systemPromptDate,
+                tailSystemMessage: tail,
+                deferredMCPSummaries: lastDeferredSummaries.isEmpty ? nil : lastDeferredSummaries
+            )
+            if let spend = spendUSD(from: response), spend > 0 {
+                finalForceSpendUSD += spend
+            }
+            finalResponse = response
+            switch response {
+            case .text:
+                break
+            case .toolCalls(let assistantMessage, let calls, _, _, _):
+                finalForceInteractions.append(disabledMaintenanceToolInteraction(
+                    assistantMessage: assistantMessage,
+                    calls: calls,
+                    reason: "Tool calls are disabled during the final-summary pass. This tool was not executed. Return the final response as plain text only."
+                ))
+            }
+            if case .text = response { break }
+        }
+        if finalForceSpendUSD > 0 {
+            KeychainHelper.recordOpenRouterSpend(finalForceSpendUSD)
+        }
+        guard let finalResponse else {
+            throw OpenRouterError.noContent
         }
         
         let finalPromptTokens: Int?
@@ -3008,8 +3040,65 @@ class ConversationManager: ObservableObject {
                     durationMs: Int(Date().timeIntervalSince(summaryStart) * 1000)
                 )
                 return trimmed.isEmpty ? nil : String(trimmed.prefix(8000))
-            case .toolCalls:
-                print("[ConversationManager] Prune summary request returned tool calls; falling back to compact log summary")
+            case .toolCalls(let assistantMessage, let calls, _, _, _):
+                var retryInteractions = (currentTurnInteractions ?? []) + [
+                    disabledMaintenanceToolInteraction(
+                        assistantMessage: assistantMessage,
+                        calls: calls,
+                        reason: "Tool calls are disabled during the prune-summary maintenance pass. This tool was not executed. Return the requested prune summary as plain text only."
+                    )
+                ]
+
+                for attempt in 1...4 {
+                    let retryTail = """
+                    [PRUNE SUMMARY RETRY \(attempt)/4 - system maintenance]
+                    The tool call(s) you requested were not executed because this is an internal pruning summary pass.
+                    Tool use remains disabled for this maintenance pass. Return plain text only.
+                    Produce the requested prune summary now, using only the conversation context already present above and the prune manifest.
+                    [END PRUNE SUMMARY RETRY]
+                    """
+
+                    do {
+                        let retryResponse = try await openRouterService.generateResponse(
+                            messages: sourceMessages,
+                            imagesDirectory: imagesDirectory,
+                            documentsDirectory: documentsDirectory,
+                            tools: tools,
+                            toolResultMessages: retryInteractions,
+                            calendarContext: calendarContext,
+                            emailContext: emailContext,
+                            chunkSummaries: chunkSummaries.isEmpty ? nil : chunkSummaries,
+                            totalChunkCount: totalChunkCount,
+                            currentUserMessageId: currentUserMessageId,
+                            turnStartDate: turnStartDate,
+                            tailUserMessage: retryTail,
+                            deferredMCPSummaries: deferredMCPSummaries.isEmpty ? nil : deferredMCPSummaries
+                        )
+                        switch retryResponse {
+                        case .text(let content, _, _, _):
+                            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                            DebugTelemetry.log(
+                                .info,
+                                summary: "prune summary completed after tool refusal",
+                                detail: "attempt: \(attempt), chars: \(trimmed.count)",
+                                durationMs: Int(Date().timeIntervalSince(summaryStart) * 1000)
+                            )
+                            return trimmed.isEmpty ? nil : String(trimmed.prefix(8000))
+                        case .toolCalls(let retryAssistant, let retryCalls, _, _, _):
+                            retryInteractions.append(
+                                disabledMaintenanceToolInteraction(
+                                    assistantMessage: retryAssistant,
+                                    calls: retryCalls,
+                                    reason: "Tool calls are disabled during the prune-summary maintenance pass. This tool was not executed. Return the requested prune summary as plain text only."
+                                )
+                            )
+                        }
+                    } catch {
+                        print("[ConversationManager] Prune summary retry \(attempt) failed after refusing tool calls: \(error)")
+                    }
+                }
+
+                print("[ConversationManager] Prune summary request kept returning tool calls after retries; falling back to compact log summary")
                 DebugTelemetry.log(
                     .info,
                     summary: "prune summary fallback: model returned tool calls",
@@ -3030,6 +3119,23 @@ class ConversationManager: ObservableObject {
             )
             return fallbackPrunedContextSummary(plan: plan, compressedIndices: compressedIndices, sourceMessages: sourceMessages)
         }
+    }
+
+    private func disabledMaintenanceToolInteraction(
+        assistantMessage: AssistantToolCallMessage,
+        calls: [ToolCall],
+        reason: String
+    ) -> ToolInteraction {
+        let escaped = reason
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let results = calls.map { call in
+            ToolResultMessage(
+                toolCallId: call.id,
+                content: "{\"error\":\"\(escaped)\"}"
+            )
+        }
+        return ToolInteraction(assistantMessage: assistantMessage, results: results)
     }
 
     private func fallbackPrunedContextSummary(

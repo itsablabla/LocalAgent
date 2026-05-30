@@ -265,11 +265,62 @@ actor SubagentRunner {
                     if let pt = promptTk { lastPromptTokens = pt }
 
                     if forceFinish {
-                        let refusedTools = calls.map { $0.function.name }.joined(separator: ", ")
-                        print("[SubagentRunner] Refused tool call(s) during force-finish: \(refusedTools)")
-                        runError = "Subagent reached the context limit and the model attempted to call more tools instead of returning a final summary. No further tools were executed."
-                        finalText = "Subagent stopped at the context limit before it could produce a final summary. It attempted to call additional tools (\(refusedTools)), but those calls were refused to avoid extra side effects or spend."
-                        break loop
+                        var forceInteractions = toolInteractions + [
+                            disabledToolInteraction(
+                                assistantMessage: assistantMessage,
+                                calls: calls,
+                                reason: "Tool calls are disabled during the subagent context-limit summary. Return the final summary as plain text only."
+                            )
+                        ]
+                        for attempt in 1...4 {
+                            let retryResponse = try await openRouterService.generateResponse(
+                                messages: messagesForLLM,
+                                imagesDirectory: imagesDirectory,
+                                documentsDirectory: documentsDirectory,
+                                tools: filteredTools,
+                                toolResultMessages: forceInteractions.isEmpty ? nil : forceInteractions,
+                                calendarContext: nil,
+                                emailContext: nil,
+                                chunkSummaries: nil,
+                                totalChunkCount: 0,
+                                currentUserMessageId: syntheticUser.id,
+                                turnStartDate: turnStartDate,
+                                finalResponseInstruction: subagentType.systemPromptSuffix,
+                                tailSystemMessage: """
+                                    [CONTEXT LIMIT SUMMARY RETRY \(attempt)/4] This turn has reached the maximum allowed context window. \
+                                    The tool call(s) you requested were not executed. Do NOT call any more tools. \
+                                    Provide your final answer NOW — summarize everything you accomplished, what files were touched, \
+                                    what you discovered, and what remains to be done.
+                                    """,
+                                modelOverride: effectiveModelOverride,
+                                providerOverride: effectiveProviderOverride,
+                                reasoningEffortOverride: effectiveReasoningOverride
+                            )
+                            markProgress()
+
+                            switch retryResponse {
+                            case .text(let content, let retryPromptTk, _, let retrySpend):
+                                if let retrySpend { totalSpendUSD += retrySpend }
+                                if let pt = retryPromptTk { lastPromptTokens = pt }
+                                finalText = content
+                                break loop
+                            case .toolCalls(let retryAssistantMessage, let retryCalls, let retryPromptTk, _, let retrySpend):
+                                if let retrySpend { totalSpendUSD += retrySpend }
+                                if let pt = retryPromptTk { lastPromptTokens = pt }
+                                forceInteractions.append(disabledToolInteraction(
+                                    assistantMessage: retryAssistantMessage,
+                                    calls: retryCalls,
+                                    reason: "Tool calls are disabled during the subagent context-limit summary. Return the final summary as plain text only."
+                                ))
+                                if attempt == 4 {
+                                    let refusedTools = retryCalls.map { $0.function.name }.joined(separator: ", ")
+                                    print("[SubagentRunner] Refused repeated tool call(s) during context-limit force-finish: \(refusedTools)")
+                                    runError = "Subagent reached the context limit and the model kept attempting to call tools instead of returning a final summary. No tools were executed."
+                                    finalText = "Subagent stopped at the context limit before it could produce a final summary. It attempted to call additional tools (\(refusedTools)), but those calls were refused to avoid extra side effects or spend."
+                                    break loop
+                                }
+                            }
+                        }
                     }
 
                     // Filter out any tool calls the subagent is not allowed to make.
@@ -350,41 +401,54 @@ actor SubagentRunner {
         if runError == nil && finalText.isEmpty {
             do {
                 try Task.checkCancellation()
-                let forceResponse = try await openRouterService.generateResponse(
-                    messages: messagesForLLM,
-                    imagesDirectory: imagesDirectory,
-                    documentsDirectory: documentsDirectory,
-                    tools: filteredTools,
-                    toolResultMessages: toolInteractions.isEmpty ? nil : toolInteractions,
-                    calendarContext: nil,
-                    emailContext: nil,
-                    chunkSummaries: nil,
-                    totalChunkCount: 0,
-                    currentUserMessageId: syntheticUser.id,
-                    turnStartDate: turnStartDate,
-                    finalResponseInstruction: subagentType.systemPromptSuffix,
-                    tailSystemMessage: """
-                        [ROUND LIMIT] You have reached the maximum number of tool rounds for this run. \
-                        Do NOT call any more tools. Provide your final answer NOW — summarize everything \
-                        you accomplished, what files were touched, and what remains to be done.
-                        """,
-                    modelOverride: effectiveModelOverride,
-                    providerOverride: effectiveProviderOverride,
-                    reasoningEffortOverride: effectiveReasoningOverride
-                )
-                markProgress()
+                var forceInteractions = toolInteractions
+                for attempt in 0...4 {
+                    let forceResponse = try await openRouterService.generateResponse(
+                        messages: messagesForLLM,
+                        imagesDirectory: imagesDirectory,
+                        documentsDirectory: documentsDirectory,
+                        tools: filteredTools,
+                        toolResultMessages: forceInteractions.isEmpty ? nil : forceInteractions,
+                        calendarContext: nil,
+                        emailContext: nil,
+                        chunkSummaries: nil,
+                        totalChunkCount: 0,
+                        currentUserMessageId: syntheticUser.id,
+                        turnStartDate: turnStartDate,
+                        finalResponseInstruction: subagentType.systemPromptSuffix,
+                        tailSystemMessage: """
+                            [ROUND LIMIT SUMMARY REQUEST \(attempt + 1)/5] You have reached the maximum number of tool rounds for this run. \
+                            Do NOT call any more tools. Provide your final answer NOW — summarize everything \
+                            you accomplished, what files were touched, and what remains to be done.
+                            """,
+                        modelOverride: effectiveModelOverride,
+                        providerOverride: effectiveProviderOverride,
+                        reasoningEffortOverride: effectiveReasoningOverride
+                    )
+                    markProgress()
 
-                switch forceResponse {
-                case .text(let content, let promptTk, _, let spend):
-                    if let spend { totalSpendUSD += spend }
-                    if let pt = promptTk { lastPromptTokens = pt }
-                    finalText = content
-                case .toolCalls(_, _, _, _, let spend):
-                    // Tools remain available for prompt-cache stability, so a model
-                    // can still request them here. Never execute tools from a
-                    // force-finish response.
-                    if let spend { totalSpendUSD += spend }
-                    runError = "Subagent exhausted maxTurns (\(maxTurns)) without returning a final text message"
+                    switch forceResponse {
+                    case .text(let content, let promptTk, _, let spend):
+                        if let spend { totalSpendUSD += spend }
+                        if let pt = promptTk { lastPromptTokens = pt }
+                        finalText = content
+                        break
+                    case .toolCalls(let assistantMessage, let calls, let promptTk, _, let spend):
+                        // Tools remain available for prompt-cache stability, so a model
+                        // can still request them here. Never execute tools from a
+                        // force-finish response; feed back no-op tool results and retry.
+                        if let spend { totalSpendUSD += spend }
+                        if let pt = promptTk { lastPromptTokens = pt }
+                        forceInteractions.append(disabledToolInteraction(
+                            assistantMessage: assistantMessage,
+                            calls: calls,
+                            reason: "Tool calls are disabled during the subagent force-finish summary. Return the final summary as plain text only."
+                        ))
+                        if attempt == 4 {
+                            runError = "Subagent exhausted maxTurns (\(maxTurns)) without returning a final text message"
+                        }
+                    }
+                    if !finalText.isEmpty || runError != nil { break }
                 }
             } catch {
                 runError = "Subagent exhausted maxTurns (\(maxTurns)) and failed to produce final summary: \(error.localizedDescription)"
@@ -482,27 +546,57 @@ actor SubagentRunner {
         let summaryMessages = [Message(role: .user, content: summaryPrompt, timestamp: Date())]
 
         do {
-            let response = try await openRouterService.generateResponse(
-                messages: summaryMessages,
-                imagesDirectory: imagesDirectory,
-                documentsDirectory: documentsDirectory,
-                tools: [],
-                modelOverride: modelOverride,
-                providerOverride: providerOverride,
-                reasoningEffortOverride: reasoningEffortOverride
-            )
+            var refusalInteractions: [ToolInteraction] = []
+            for attempt in 0...4 {
+                let response = try await openRouterService.generateResponse(
+                    messages: summaryMessages,
+                    imagesDirectory: imagesDirectory,
+                    documentsDirectory: documentsDirectory,
+                    tools: [],
+                    toolResultMessages: refusalInteractions.isEmpty ? nil : refusalInteractions,
+                    tailSystemMessage: attempt == 0 ? nil : """
+                    [SUMMARY RETRY \(attempt)/4]
+                    The previous response attempted to call tools. Tool use is disabled for this summarization pass.
+                    Return the session history summary as plain text only.
+                    """,
+                    modelOverride: modelOverride,
+                    providerOverride: providerOverride,
+                    reasoningEffortOverride: reasoningEffortOverride
+                )
 
-            switch response {
-            case .text(let content, _, _, _):
-                return "[SESSION HISTORY SUMMARY — Earlier work in this session was summarized to free context space. Details below are from the evicted portion.]\n\n\(content)"
-            case .toolCalls:
-                // Shouldn't happen with tools=[], but handle gracefully.
-                return nil
+                switch response {
+                case .text(let content, _, _, _):
+                    return "[SESSION HISTORY SUMMARY — Earlier work in this session was summarized to free context space. Details below are from the evicted portion.]\n\n\(content)"
+                case .toolCalls(let assistantMessage, let calls, _, _, _):
+                    refusalInteractions.append(disabledToolInteraction(
+                        assistantMessage: assistantMessage,
+                        calls: calls,
+                        reason: "Tool calls are disabled during session-overflow summarization. Return the summary as plain text only."
+                    ))
+                }
             }
+            return nil
         } catch {
             print("[SubagentRunner] Failed to summarize session overflow: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func disabledToolInteraction(
+        assistantMessage: AssistantToolCallMessage,
+        calls: [ToolCall],
+        reason: String
+    ) -> ToolInteraction {
+        let escaped = reason
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let results = calls.map { call in
+            ToolResultMessage(
+                toolCallId: call.id,
+                content: "{\"error\":\"\(escaped)\"}"
+            )
+        }
+        return ToolInteraction(assistantMessage: assistantMessage, results: results)
     }
 
     // MARK: - Turn Token Budget
