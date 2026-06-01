@@ -82,14 +82,71 @@ actor OpenRouterService {
             || normalized.contains("kimi-k2p6")
             || normalized.contains("deepseek-v4-pro")
             || normalized.contains("glm-5.1")
+            || normalized.contains("minimax-")
     }
 
-    private static func shouldSendOpenCodeThinking(_ model: String) -> Bool {
+    private static func isOpenCodeMiniMaxModel(_ model: String) -> Bool {
+        model.lowercased().contains("minimax-")
+    }
+
+    private static func openCodeThinkingType(for model: String) -> String? {
         let normalized = model.lowercased()
         // OpenCode Go returned an internal server error when GLM 5.1 received
         // both `thinking` and `reasoning_effort`; `reasoning_effort` alone still
         // returns `reasoning_content` for GLM.
-        return !normalized.contains("glm-5.1")
+        if normalized.contains("glm-5.1") { return nil }
+        // MiniMax rejects Fireworks/Kimi's `enabled` value and accepts
+        // `adaptive`/`disabled`; adaptive returns inline <think> blocks.
+        if normalized.contains("minimax-") { return "adaptive" }
+        return "enabled"
+    }
+
+    private static func splitInlineThinking(from content: String?) -> (content: String?, reasoning: JSONValue?) {
+        guard let content,
+              content.range(of: "<think>", options: [.caseInsensitive]) != nil else {
+            return (content, nil)
+        }
+
+        var cursor = content.startIndex
+        var visible = ""
+        var thoughts: [String] = []
+
+        while let openRange = content.range(
+            of: "<think>",
+            options: [.caseInsensitive],
+            range: cursor..<content.endIndex
+        ) {
+            visible += content[cursor..<openRange.lowerBound]
+
+            guard let closeRange = content.range(
+                of: "</think>",
+                options: [.caseInsensitive],
+                range: openRange.upperBound..<content.endIndex
+            ) else {
+                visible += content[openRange.lowerBound..<content.endIndex]
+                cursor = content.endIndex
+                break
+            }
+
+            let thought = String(content[openRange.upperBound..<closeRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !thought.isEmpty {
+                thoughts.append(thought)
+            }
+            cursor = closeRange.upperBound
+        }
+
+        if cursor < content.endIndex {
+            visible += content[cursor..<content.endIndex]
+        }
+
+        let cleanedContent = visible.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoningText = thoughts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (
+            cleanedContent.isEmpty ? nil : cleanedContent,
+            reasoningText.isEmpty ? nil : .string(reasoningText)
+        )
     }
 
     /// Returns the user-configured provider order, or nil if not set.
@@ -1471,7 +1528,7 @@ actor OpenRouterService {
         }()
 
         let useReasoningContent = currentProvider == .openAICompatible && Self.isOpenCodeReasoningContentModel(effectiveModel)
-        let useThinkingConfig = useReasoningContent && Self.shouldSendOpenCodeThinking(effectiveModel)
+        let openCodeThinkingType = useReasoningContent ? Self.openCodeThinkingType(for: effectiveModel) : nil
 
         var reasoningConfig: ReasoningConfig? = nil
         var reasoningEffortField: String? = nil
@@ -1480,7 +1537,7 @@ actor OpenRouterService {
             case .openRouter:
                 reasoningConfig = ReasoningConfig(effort: effort)
             case .openAICompatible:
-                if !useThinkingConfig {
+                if openCodeThinkingType == nil {
                     reasoningEffortField = effort
                 }
             case .lmStudio:
@@ -1499,7 +1556,7 @@ actor OpenRouterService {
             provider: providerPrefs,
             reasoning: reasoningConfig,
             reasoningEffort: reasoningEffortField,
-            thinking: useThinkingConfig ? ThinkingConfig(type: "enabled") : nil,
+            thinking: openCodeThinkingType.map { ThinkingConfig(type: $0) },
             reasoningHistory: useReasoningContent ? "preserved" : nil
         )
 
@@ -1586,13 +1643,23 @@ actor OpenRouterService {
             print("[OpenRouterService] Usage spend: unavailable")
         }
         
+        let shouldNormalizeMiniMaxInlineThinking = currentProvider == .openAICompatible
+            && Self.isOpenCodeMiniMaxModel(effectiveModel)
+        let responseContentAndReasoning: (content: String?, reasoning: JSONValue?) = shouldNormalizeMiniMaxInlineThinking
+            ? Self.splitInlineThinking(from: choice.message.content)
+            : (content: choice.message.content, reasoning: nil)
+        let responseContent = responseContentAndReasoning.content
+        let responseReasoning = choice.message.reasoning
+            ?? choice.message.reasoningContent
+            ?? responseContentAndReasoning.reasoning
+
         // Check if the model wants to call tools
         if let toolCalls = choice.message.toolCalls, !toolCalls.isEmpty {
             return .toolCalls(
                 assistantMessage: AssistantToolCallMessage(
-                    content: choice.message.content,
+                    content: responseContent,
                     toolCalls: toolCalls,
-                    reasoning: choice.message.reasoning ?? choice.message.reasoningContent,
+                    reasoning: responseReasoning,
                     reasoningDetails: choice.message.reasoningDetails
                 ),
                 calls: toolCalls,
@@ -1603,7 +1670,7 @@ actor OpenRouterService {
         }
 
         // Regular text response
-        guard let content = choice.message.content else {
+        guard let content = responseContent else {
             throw OpenRouterError.noContent
         }
 
