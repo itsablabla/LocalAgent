@@ -138,6 +138,11 @@ extension KeychainHelper {
     static let defaultGeminiImageInputCostPerMillionTokensUSD = "2"
     static let defaultGeminiImageOutputTextCostPerMillionTokensUSD = "12"
     static let defaultGeminiImageOutputImageCostPerMillionTokensUSD = "120"
+    static let defaultImageGenerationProvider = "gemini"
+    static let defaultOpenAIImageModel = "gpt-image-2"
+    static let defaultOpenAIImageQuality = "auto"
+    static let defaultOpenAIImageOutputFormat = "png"
+    static let defaultOpenAIImageModeration = "auto"
 
     static let telegramBotTokenKey = "telegram_bot_token"
     static let telegramChatIdKey = "telegram_chat_id"
@@ -154,10 +159,16 @@ extension KeychainHelper {
 
     // Google Gemini API Key
     static let geminiApiKeyKey = "gemini_api_key"
+    static let imageGenerationProviderKey = "image_generation_provider"
     static let geminiImageModelKey = "gemini_image_model"
     static let geminiImageInputCostPerMillionTokensUSDKey = "gemini_image_input_cost_per_million_tokens_usd"
     static let geminiImageOutputTextCostPerMillionTokensUSDKey = "gemini_image_output_text_cost_per_million_tokens_usd"
     static let geminiImageOutputImageCostPerMillionTokensUSDKey = "gemini_image_output_image_cost_per_million_tokens_usd"
+    static let openAIImageApiKeyKey = "openai_image_api_key"
+    static let openAIImageModelKey = "openai_image_model"
+    static let openAIImageQualityKey = "openai_image_quality"
+    static let openAIImageOutputFormatKey = "openai_image_output_format"
+    static let openAIImageModerationKey = "openai_image_moderation"
     
     // Persona Settings Keys
     static let assistantNameKey = "assistant_name"

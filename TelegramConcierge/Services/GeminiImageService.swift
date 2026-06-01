@@ -1,5 +1,35 @@
 import Foundation
 
+enum ImageGenerationProvider: String, CaseIterable, Identifiable {
+    case gemini
+    case openAI = "openai"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .gemini: return "Gemini"
+        case .openAI: return "OpenAI Images"
+        }
+    }
+
+    var toolName: String {
+        switch self {
+        case .gemini: return "Gemini"
+        case .openAI: return "OpenAI Images"
+        }
+    }
+
+    static func fromStoredValue(_ rawValue: String?) -> ImageGenerationProvider {
+        switch rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case ImageGenerationProvider.openAI.rawValue:
+            return .openAI
+        default:
+            return .gemini
+        }
+    }
+}
+
 /// Service for generating images using a configurable Gemini image model
 actor GeminiImageService {
     static let shared = GeminiImageService()
@@ -165,6 +195,539 @@ actor GeminiImageService {
             return 2000
         }
     }
+}
+
+/// Service for generating images and edits using OpenAI's Image API.
+actor OpenAIImageService {
+    static let shared = OpenAIImageService()
+
+    private var apiKey: String = ""
+    private var model: String = KeychainHelper.defaultOpenAIImageModel
+    private var quality: String = KeychainHelper.defaultOpenAIImageQuality
+    private var outputFormat: String = KeychainHelper.defaultOpenAIImageOutputFormat
+    private var moderation: String = KeychainHelper.defaultOpenAIImageModeration
+
+    func configure(
+        apiKey: String,
+        model: String? = nil,
+        quality: String? = nil,
+        outputFormat: String? = nil,
+        moderation: String? = nil
+    ) {
+        self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.model = Self.normalized(
+            model,
+            defaultValue: KeychainHelper.defaultOpenAIImageModel,
+            allowedValues: nil
+        )
+        self.quality = Self.normalized(
+            quality,
+            defaultValue: KeychainHelper.defaultOpenAIImageQuality,
+            allowedValues: ["auto", "low", "medium", "high"]
+        )
+        self.outputFormat = Self.normalized(
+            outputFormat,
+            defaultValue: KeychainHelper.defaultOpenAIImageOutputFormat,
+            allowedValues: ["png", "jpeg", "webp"]
+        )
+        self.moderation = Self.normalized(
+            moderation,
+            defaultValue: KeychainHelper.defaultOpenAIImageModeration,
+            allowedValues: ["auto", "low"]
+        )
+    }
+
+    func isConfigured() -> Bool {
+        !apiKey.isEmpty
+    }
+
+    func generateImage(
+        prompt: String,
+        sourceImageData: Data? = nil,
+        sourceMimeType: String? = nil,
+        imageSize: String? = nil,
+        quality: String? = nil,
+        outputFormat: String? = nil,
+        outputCompression: Int? = nil,
+        background: String? = nil,
+        moderation: String? = nil
+    ) async throws -> (data: Data, mimeType: String, spendUSD: Double?) {
+        guard !apiKey.isEmpty else {
+            throw OpenAIImageError.notConfigured
+        }
+
+        let resolvedSize = OpenAIImageSize.parse(imageSize)?.rawValue
+        let resolvedQuality = Self.normalized(
+            quality,
+            defaultValue: self.quality,
+            allowedValues: ["auto", "low", "medium", "high"]
+        )
+        let resolvedOutputFormat = Self.normalized(
+            outputFormat,
+            defaultValue: self.outputFormat,
+            allowedValues: ["png", "jpeg", "webp"]
+        )
+        let resolvedBackground = Self.normalized(
+            background,
+            defaultValue: "auto",
+            allowedValues: ["auto", "opaque"]
+        )
+        let resolvedModeration = Self.normalized(
+            moderation,
+            defaultValue: self.moderation,
+            allowedValues: ["auto", "low"]
+        )
+        let resolvedCompression = Self.normalizedCompression(outputCompression)
+
+        if let sourceImageData {
+            return try await editImage(
+                prompt: prompt,
+                sourceImageData: sourceImageData,
+                sourceMimeType: sourceMimeType ?? "image/png",
+                imageSize: resolvedSize,
+                quality: resolvedQuality,
+                outputFormat: resolvedOutputFormat,
+                outputCompression: resolvedCompression,
+                background: resolvedBackground,
+                moderation: resolvedModeration
+            )
+        }
+
+        return try await createImage(
+            prompt: prompt,
+            imageSize: resolvedSize,
+            quality: resolvedQuality,
+            outputFormat: resolvedOutputFormat,
+            outputCompression: resolvedCompression,
+            background: resolvedBackground,
+            moderation: resolvedModeration
+        )
+    }
+
+    private func createImage(
+        prompt: String,
+        imageSize: String?,
+        quality: String,
+        outputFormat: String,
+        outputCompression: Int?,
+        background: String,
+        moderation: String
+    ) async throws -> (data: Data, mimeType: String, spendUSD: Double?) {
+        guard let url = URL(string: "https://api.openai.com/v1/images/generations") else {
+            throw OpenAIImageError.invalidURL
+        }
+
+        let requestBody = OpenAIImageGenerationRequest(
+            model: model,
+            prompt: prompt,
+            size: imageSize,
+            quality: quality,
+            outputFormat: outputFormat,
+            outputCompression: outputCompression,
+            background: background,
+            moderation: moderation
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 180
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let response = try await perform(request)
+        return try decodeImageResponse(response, fallbackOutputFormat: outputFormat)
+    }
+
+    private func editImage(
+        prompt: String,
+        sourceImageData: Data,
+        sourceMimeType: String,
+        imageSize: String?,
+        quality: String,
+        outputFormat: String,
+        outputCompression: Int?,
+        background: String,
+        moderation: String
+    ) async throws -> (data: Data, mimeType: String, spendUSD: Double?) {
+        guard let url = URL(string: "https://api.openai.com/v1/images/edits") else {
+            throw OpenAIImageError.invalidURL
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+        appendMultipartField(name: "model", value: model, boundary: boundary, to: &body)
+        appendMultipartField(name: "prompt", value: prompt, boundary: boundary, to: &body)
+        if let imageSize {
+            appendMultipartField(name: "size", value: imageSize, boundary: boundary, to: &body)
+        }
+        appendMultipartField(name: "quality", value: quality, boundary: boundary, to: &body)
+        appendMultipartField(name: "output_format", value: outputFormat, boundary: boundary, to: &body)
+        if let outputCompression {
+            appendMultipartField(name: "output_compression", value: "\(outputCompression)", boundary: boundary, to: &body)
+        }
+        appendMultipartField(name: "background", value: background, boundary: boundary, to: &body)
+        appendMultipartField(name: "moderation", value: moderation, boundary: boundary, to: &body)
+        appendMultipartFile(
+            name: "image[]",
+            filename: "source.\(fileExtension(for: sourceMimeType))",
+            mimeType: sourceMimeType,
+            data: sourceImageData,
+            boundary: boundary,
+            to: &body
+        )
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 180
+        request.httpBody = body
+
+        let response = try await perform(request)
+        return try decodeImageResponse(response, fallbackOutputFormat: outputFormat)
+    }
+
+    private func perform(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OpenAIImageError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
+                throw OpenAIImageError.apiError(errorResponse.error.message)
+            }
+            throw OpenAIImageError.httpError(httpResponse.statusCode)
+        }
+
+        return data
+    }
+
+    private func decodeImageResponse(
+        _ data: Data,
+        fallbackOutputFormat: String
+    ) throws -> (data: Data, mimeType: String, spendUSD: Double?) {
+        let imageResponse = try JSONDecoder().decode(OpenAIImagesResponse.self, from: data)
+        guard let firstImage = imageResponse.data?.first,
+              let b64JSON = firstImage.b64JSON,
+              let imageData = Data(base64Encoded: b64JSON) else {
+            throw OpenAIImageError.invalidImageData
+        }
+
+        let format = imageResponse.outputFormat ?? fallbackOutputFormat
+        let spendUSD = estimatedSpendUSD(from: imageResponse.usage)
+        return (imageData, mimeType(for: format), spendUSD)
+    }
+
+    private func estimatedSpendUSD(from usage: OpenAIImageUsage?) -> Double? {
+        guard let usage,
+              let pricing = OpenAIImagePricing.pricing(for: model) else {
+            return nil
+        }
+
+        var totalUSD = 0.0
+        var didCalculate = false
+
+        if let textInputTokens = usage.inputTokensDetails?.textTokens, textInputTokens > 0 {
+            totalUSD += (Double(textInputTokens) / 1_000_000.0) * pricing.textInputCostPerMillionTokensUSD
+            didCalculate = true
+        }
+
+        if let imageInputTokens = usage.inputTokensDetails?.imageTokens, imageInputTokens > 0 {
+            totalUSD += (Double(imageInputTokens) / 1_000_000.0) * pricing.imageInputCostPerMillionTokensUSD
+            didCalculate = true
+        }
+
+        if let imageOutputTokens = usage.outputTokensDetails?.imageTokens ?? usage.outputTokens,
+           imageOutputTokens > 0 {
+            totalUSD += (Double(imageOutputTokens) / 1_000_000.0) * pricing.imageOutputCostPerMillionTokensUSD
+            didCalculate = true
+        }
+
+        if let textOutputTokens = usage.outputTokensDetails?.textTokens,
+           let textOutputCostPerMillionTokensUSD = pricing.textOutputCostPerMillionTokensUSD,
+           textOutputTokens > 0 {
+            totalUSD += (Double(textOutputTokens) / 1_000_000.0) * textOutputCostPerMillionTokensUSD
+            didCalculate = true
+        }
+
+        guard didCalculate, totalUSD.isFinite, totalUSD > 0 else { return nil }
+        return totalUSD
+    }
+
+    private static func normalized(
+        _ rawValue: String?,
+        defaultValue: String,
+        allowedValues: Set<String>?
+    ) -> String {
+        let normalized = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return defaultValue }
+        if let allowedValues, !allowedValues.contains(normalized) {
+            return defaultValue
+        }
+        return normalized
+    }
+
+    private static func normalizedCompression(_ rawValue: Int?) -> Int? {
+        guard let rawValue else { return nil }
+        return min(100, max(0, rawValue))
+    }
+
+    private func appendMultipartField(name: String, value: String, boundary: String, to body: inout Data) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
+    }
+
+    private func appendMultipartFile(
+        name: String,
+        filename: String,
+        mimeType: String,
+        data: Data,
+        boundary: String,
+        to body: inout Data
+    ) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n".data(using: .utf8)!)
+    }
+
+    private func fileExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/jpeg", "image/jpg":
+            return "jpg"
+        case "image/webp":
+            return "webp"
+        default:
+            return "png"
+        }
+    }
+
+    private func mimeType(for outputFormat: String) -> String {
+        switch outputFormat.lowercased() {
+        case "jpeg", "jpg":
+            return "image/jpeg"
+        case "webp":
+            return "image/webp"
+        default:
+            return "image/png"
+        }
+    }
+}
+
+struct OpenAIImageSize {
+    let rawValue: String
+
+    static func parse(_ rawValue: String?) -> OpenAIImageSize? {
+        guard let rawValue else { return nil }
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+
+        guard !normalized.isEmpty else { return nil }
+
+        switch normalized {
+        case "auto", "default":
+            return OpenAIImageSize(rawValue: "auto")
+        case "1k", "1", "1024", "1024x1024", "square":
+            return OpenAIImageSize(rawValue: "1024x1024")
+        case "landscape", "1536x1024":
+            return OpenAIImageSize(rawValue: "1536x1024")
+        case "portrait", "1024x1536":
+            return OpenAIImageSize(rawValue: "1024x1536")
+        case "2k", "2", "2048", "2048x2048":
+            return OpenAIImageSize(rawValue: "2048x2048")
+        case "4k", "4", "uhd", "ultrahd", "ultra", "3840x2160":
+            return OpenAIImageSize(rawValue: "3840x2160")
+        default:
+            return parseConstrainedDimensions(normalized)
+        }
+    }
+
+    private static func parseConstrainedDimensions(_ normalized: String) -> OpenAIImageSize? {
+        let dimensions = normalized.split(separator: "x")
+        guard dimensions.count == 2,
+              let width = Int(dimensions[0]),
+              let height = Int(dimensions[1]),
+              width > 0,
+              height > 0 else {
+            return nil
+        }
+
+        let longEdge = max(width, height)
+        let shortEdge = min(width, height)
+        let totalPixels = width * height
+        guard longEdge <= 3840,
+              width.isMultiple(of: 16),
+              height.isMultiple(of: 16),
+              Double(longEdge) / Double(shortEdge) <= 3.0,
+              totalPixels >= 655_360,
+              totalPixels <= 8_294_400 else {
+            return nil
+        }
+
+        return OpenAIImageSize(rawValue: "\(width)x\(height)")
+    }
+}
+
+enum OpenAIImageError: LocalizedError {
+    case notConfigured
+    case invalidURL
+    case invalidResponse
+    case httpError(Int)
+    case apiError(String)
+    case invalidImageData
+
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "OpenAI image API key is not configured"
+        case .invalidURL:
+            return "Invalid OpenAI image API URL"
+        case .invalidResponse:
+            return "Invalid response from OpenAI image API"
+        case .httpError(let code):
+            return "OpenAI image API HTTP error: \(code)"
+        case .apiError(let message):
+            return "OpenAI image API error: \(message)"
+        case .invalidImageData:
+            return "Failed to decode OpenAI image data"
+        }
+    }
+}
+
+struct OpenAIImageGenerationRequest: Codable {
+    let model: String
+    let prompt: String
+    let size: String?
+    let quality: String
+    let outputFormat: String
+    let outputCompression: Int?
+    let background: String
+    let moderation: String
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case prompt
+        case size
+        case quality
+        case outputFormat = "output_format"
+        case outputCompression = "output_compression"
+        case background
+        case moderation
+    }
+}
+
+struct OpenAIImagesResponse: Codable {
+    let data: [OpenAIImageObject]?
+    let outputFormat: String?
+    let usage: OpenAIImageUsage?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case outputFormat = "output_format"
+        case usage
+    }
+}
+
+struct OpenAIImageObject: Codable {
+    let b64JSON: String?
+
+    enum CodingKeys: String, CodingKey {
+        case b64JSON = "b64_json"
+    }
+}
+
+struct OpenAIImageUsage: Codable {
+    let inputTokens: Int?
+    let inputTokensDetails: OpenAIImageInputTokensDetails?
+    let outputTokens: Int?
+    let outputTokensDetails: OpenAIImageOutputTokensDetails?
+    let totalTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case inputTokensDetails = "input_tokens_details"
+        case outputTokens = "output_tokens"
+        case outputTokensDetails = "output_tokens_details"
+        case totalTokens = "total_tokens"
+    }
+}
+
+struct OpenAIImageInputTokensDetails: Codable {
+    let imageTokens: Int?
+    let textTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case imageTokens = "image_tokens"
+        case textTokens = "text_tokens"
+    }
+}
+
+struct OpenAIImageOutputTokensDetails: Codable {
+    let imageTokens: Int?
+    let textTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case imageTokens = "image_tokens"
+        case textTokens = "text_tokens"
+    }
+}
+
+struct OpenAIImagePricing {
+    static let gptImage2 = OpenAIImagePricing(
+        textInputCostPerMillionTokensUSD: 5.0,
+        imageInputCostPerMillionTokensUSD: 8.0,
+        imageOutputCostPerMillionTokensUSD: 30.0,
+        textOutputCostPerMillionTokensUSD: nil
+    )
+
+    static let gptImage15 = OpenAIImagePricing(
+        textInputCostPerMillionTokensUSD: 5.0,
+        imageInputCostPerMillionTokensUSD: 8.0,
+        imageOutputCostPerMillionTokensUSD: 32.0,
+        textOutputCostPerMillionTokensUSD: 10.0
+    )
+
+    static let gptImage1Mini = OpenAIImagePricing(
+        textInputCostPerMillionTokensUSD: 2.0,
+        imageInputCostPerMillionTokensUSD: 2.5,
+        imageOutputCostPerMillionTokensUSD: 8.0,
+        textOutputCostPerMillionTokensUSD: nil
+    )
+
+    let textInputCostPerMillionTokensUSD: Double
+    let imageInputCostPerMillionTokensUSD: Double
+    let imageOutputCostPerMillionTokensUSD: Double
+    let textOutputCostPerMillionTokensUSD: Double?
+
+    static func pricing(for model: String) -> OpenAIImagePricing? {
+        let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix("gpt-image-2") {
+            return .gptImage2
+        }
+        if normalized.hasPrefix("gpt-image-1.5") {
+            return .gptImage15
+        }
+        if normalized.hasPrefix("gpt-image-1-mini") {
+            return .gptImage1Mini
+        }
+        return nil
+    }
+}
+
+struct OpenAIErrorResponse: Codable {
+    let error: OpenAIErrorDetail
+}
+
+struct OpenAIErrorDetail: Codable {
+    let message: String
 }
 
 struct GeminiImagePricing {

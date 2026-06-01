@@ -587,24 +587,86 @@ enum AvailableTools {
     )
     // MARK: - Image Generation Tool
     
-    static let generateImage = ToolDefinition(
+    static var generateImage: ToolDefinition {
+        switch ImageGenerationProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.imageGenerationProviderKey)) {
+        case .gemini:
+            return geminiGenerateImage
+        case .openAI:
+            return openAIGenerateImage
+        }
+    }
+
+    private static let geminiGenerateImage = ToolDefinition(
         function: FunctionDefinition(
             name: "generate_image",
-            description: "Generate an image from a text description using AI, or transform/edit an existing image. Use when the user asks you to create, generate, draw, make, edit, or transform an image/picture/illustration. The generated image will be sent to the user in the chat. For image edits, provide source_image with the stored image filename from recent image/file metadata; this tool does not infer the most recent image automatically.",
+            description: "Generate an image from a text description using Gemini, or use an existing image as reference/input for image-to-image transformation. Use when the user asks you to create, generate, draw, make, edit, transform, restyle, or use an image as inspiration. The generated image will be sent to the user in the chat. Provide source_image when the user refers to a specific prior image; this tool does not infer the most recent image automatically.",
             parameters: FunctionParameters(
                 properties: [
                     "prompt": ParameterProperty(
                         type: "string",
-                        description: "A detailed description of the image to generate, or instructions for how to transform the source image. For new images: be specific about subjects, style, colors, lighting, composition, and mood. For edits: describe what changes to make (e.g., 'make the sky more dramatic', 'add a rainbow', 'convert to oil painting style')."
+                        description: "A detailed description of the image to generate or transformation to apply. If source_image is provided, say whether to preserve/edit the original image or use it as loose visual inspiration/reference."
                     ),
                     "source_image": ParameterProperty(
                         type: "string",
-                        description: "Optional. Stored image filename in the LocalAgent images store, e.g. 'abc123.jpg'. Required when editing a specific prior image. Use the exact basename from recent image/file metadata; do not pass an absolute path. Leave empty to generate a new image from scratch."
+                        description: "Optional. Stored image filename in the LocalAgent images store, e.g. 'abc123.jpg'. Use the exact basename from recent image/file metadata; do not pass an absolute path. Leave empty to generate a new image from scratch."
                     ),
                     "size": ParameterProperty(
                         type: "string",
-                        description: "Optional output size. Supported values: '1K' (default), '2K', '4K'. Use '4K' when the user requests ultra-high resolution or when high-detail output is important.",
+                        description: "Optional Gemini output size. Supported values: '1K' (default), '2K', '4K'. Use '4K' when the user requests ultra-high resolution or when high-detail output is important.",
                         enumValues: ["1K", "2K", "4K"]
+                    )
+                ],
+                required: ["prompt"]
+            )
+        )
+    )
+
+    private static let openAIGenerateImage = ToolDefinition(
+        function: FunctionDefinition(
+            name: "generate_image",
+            description: "Generate an image using OpenAI GPT Image, or generate a new image using one stored source image as a reference/input. Use when the user asks you to create, generate, draw, make, edit, transform, restyle, or use an image as inspiration. If source_image is provided, this tool uses OpenAI's image edit/reference endpoint; it can either edit the original or create a new image inspired by it depending on the prompt and source_image_role.",
+            parameters: FunctionParameters(
+                properties: [
+                    "prompt": ParameterProperty(
+                        type: "string",
+                        description: "A detailed description of the desired image. If using a source image, explicitly say what should be preserved, changed, or merely used as inspiration."
+                    ),
+                    "source_image": ParameterProperty(
+                        type: "string",
+                        description: "Optional. Stored image filename in the LocalAgent images store, e.g. 'abc123.jpg'. Use the exact basename from recent image/file metadata; do not pass an absolute path. Leave empty to generate a new image from scratch."
+                    ),
+                    "source_image_role": ParameterProperty(
+                        type: "string",
+                        description: "Optional. How to treat source_image when provided. Use 'reference' when the image is inspiration/style/composition only, 'edit' when preserving and directly changing the original, and 'transform' when restyling or reimagining the original subject.",
+                        enumValues: ["reference", "edit", "transform"]
+                    ),
+                    "size": ParameterProperty(
+                        type: "string",
+                        description: "Optional GPT Image 2 output size. Use 'auto' by default, or any valid WIDTHxHEIGHT where both edges are multiples of 16, max edge is 3840px, aspect ratio is at most 3:1, and total pixels are 655,360 through 8,294,400. Good choices: 1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 3840x2160, 2160x3840."
+                    ),
+                    "quality": ParameterProperty(
+                        type: "string",
+                        description: "Optional rendering quality. Use 'auto' by default; use 'high' when detail and fidelity matter more than latency.",
+                        enumValues: ["auto", "low", "medium", "high"]
+                    ),
+                    "output_format": ParameterProperty(
+                        type: "string",
+                        description: "Optional output file format. Use 'png' by default, 'jpeg' for faster/lighter photos, or 'webp' for compressed web assets.",
+                        enumValues: ["png", "jpeg", "webp"]
+                    ),
+                    "output_compression": ParameterProperty(
+                        type: "integer",
+                        description: "Optional compression level from 0 to 100 for JPEG or WebP outputs. Ignored for PNG."
+                    ),
+                    "background": ParameterProperty(
+                        type: "string",
+                        description: "Optional GPT Image 2 background handling. Use 'auto' by default or 'opaque'. GPT Image 2 does not support transparent backgrounds.",
+                        enumValues: ["auto", "opaque"]
+                    ),
+                    "moderation": ParameterProperty(
+                        type: "string",
+                        description: "Optional content moderation strictness. Use 'auto' by default; 'low' is less restrictive where allowed.",
+                        enumValues: ["auto", "low"]
                     )
                 ],
                 required: ["prompt"]

@@ -1655,16 +1655,55 @@ extension ToolExecutor {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("LocalAgent/images", isDirectory: true)
     }
+
+    private func configuredGeminiImagePricing() -> GeminiImagePricing {
+        func configuredRate(for key: String, defaultValue: Double) -> Double {
+            guard let rawValue = KeychainHelper.load(key: key),
+                  let parsedValue = Double(rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  parsedValue.isFinite,
+                  parsedValue >= 0 else {
+                return defaultValue
+            }
+            return parsedValue
+        }
+
+        return GeminiImagePricing(
+            inputCostPerMillionTokensUSD: configuredRate(
+                for: KeychainHelper.geminiImageInputCostPerMillionTokensUSDKey,
+                defaultValue: GeminiImagePricing.default.inputCostPerMillionTokensUSD
+            ),
+            outputTextCostPerMillionTokensUSD: configuredRate(
+                for: KeychainHelper.geminiImageOutputTextCostPerMillionTokensUSDKey,
+                defaultValue: GeminiImagePricing.default.outputTextCostPerMillionTokensUSD
+            ),
+            outputImageCostPerMillionTokensUSD: configuredRate(
+                for: KeychainHelper.geminiImageOutputImageCostPerMillionTokensUSDKey,
+                defaultValue: GeminiImagePricing.default.outputImageCostPerMillionTokensUSD
+            )
+        )
+    }
+
+    private func promptWithSourceImageRole(_ role: String?, prompt: String) -> String {
+        let normalizedRole = role?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalizedRole {
+        case "reference":
+            return "Use the input image as loose visual reference or inspiration, not as a strict edit target. \(prompt)"
+        case "edit":
+            return "Edit the input image directly while preserving relevant original content. \(prompt)"
+        case "transform":
+            return "Transform or reimagine the input image according to the request while preserving the important subject or concept. \(prompt)"
+        default:
+            return prompt
+        }
+    }
     
     func executeGenerateImage(_ call: ToolCall) async -> ToolResultMessage {
         guard let argsData = call.function.arguments.data(using: .utf8),
               let args = try? JSONDecoder().decode(GenerateImageArguments.self, from: argsData) else {
             return ToolResultMessage(toolCallId: call.id, content: "{\"error\": \"Failed to parse generate_image arguments\"}")
-        }
-        
-        // Check if Gemini API is configured
-        guard await GeminiImageService.shared.isConfigured() else {
-            return ToolResultMessage(toolCallId: call.id, content: "{\"error\": \"Gemini API key is not configured. Please add your Google API key in Settings.\"}")
         }
         
         // Load source image if provided
@@ -1699,28 +1738,103 @@ extension ToolExecutor {
             }
         }
         
+        let provider = ImageGenerationProvider.fromStoredValue(
+            KeychainHelper.load(key: KeychainHelper.imageGenerationProviderKey)
+        )
         let requestedSize = args.size?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedImageSize = GeminiImageSize.parse(requestedSize)
-        if let requestedSize, !requestedSize.isEmpty, normalizedImageSize == nil {
-            let escapedSize = requestedSize
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            return ToolResultMessage(
-                toolCallId: call.id,
-                content: "{\"error\": \"Invalid size '\(escapedSize)'. Supported values: 1K, 2K, 4K.\"}"
-            )
-        }
         
         do {
-            let (imageData, mimeType, spendUSD) = try await GeminiImageService.shared.generateImage(
-                prompt: args.prompt,
-                sourceImageData: sourceImageData,
-                sourceMimeType: sourceMimeType,
-                imageSize: normalizedImageSize?.rawValue
-            )
+            let imageResult: (data: Data, mimeType: String, spendUSD: Double?)
+            let resolvedImageSize: String
+
+            switch provider {
+            case .gemini:
+                guard let geminiApiKey = KeychainHelper.load(key: KeychainHelper.geminiApiKeyKey),
+                      !geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return ToolResultMessage(toolCallId: call.id, content: "{\"error\": \"Gemini API key is not configured. Please add your Google API key in Settings.\"}")
+                }
+
+                let geminiImageSize = GeminiImageSize.parse(requestedSize)
+                if let requestedSize, !requestedSize.isEmpty, geminiImageSize == nil {
+                    let escapedSize = requestedSize
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "\"", with: "\\\"")
+                    return ToolResultMessage(
+                        toolCallId: call.id,
+                        content: "{\"error\": \"Invalid Gemini size '\(escapedSize)'. Supported values: 1K, 2K, 4K.\"}"
+                    )
+                }
+
+                let configuredModel = (KeychainHelper.load(key: KeychainHelper.geminiImageModelKey) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                await GeminiImageService.shared.configure(
+                    apiKey: geminiApiKey,
+                    model: configuredModel.isEmpty ? GeminiImagePricing.defaultModel : configuredModel,
+                    pricing: configuredGeminiImagePricing()
+                )
+                imageResult = try await GeminiImageService.shared.generateImage(
+                    prompt: args.prompt,
+                    sourceImageData: sourceImageData,
+                    sourceMimeType: sourceMimeType,
+                    imageSize: geminiImageSize?.rawValue
+                )
+                resolvedImageSize = geminiImageSize?.rawValue ?? "default"
+
+            case .openAI:
+                guard let openAIAPIKey = KeychainHelper.load(key: KeychainHelper.openAIImageApiKeyKey),
+                      !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return ToolResultMessage(toolCallId: call.id, content: "{\"error\": \"OpenAI image API key is not configured. Please add your OpenAI API key in Settings.\"}")
+                }
+
+                let openAIImageSize = OpenAIImageSize.parse(requestedSize)
+                if let requestedSize, !requestedSize.isEmpty, openAIImageSize == nil {
+                    let escapedSize = requestedSize
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "\"", with: "\\\"")
+                    return ToolResultMessage(
+                        toolCallId: call.id,
+                        content: "{\"error\": \"Invalid OpenAI image size '\(escapedSize)'. Use auto or WIDTHxHEIGHT with max edge <= 3840, both edges multiples of 16, aspect ratio <= 3:1, and total pixels between 655360 and 8294400.\"}"
+                    )
+                }
+
+                let openAIPrompt = sourceImageData == nil
+                    ? args.prompt
+                    : promptWithSourceImageRole(args.sourceImageRole, prompt: args.prompt)
+                await OpenAIImageService.shared.configure(
+                    apiKey: openAIAPIKey,
+                    model: KeychainHelper.load(key: KeychainHelper.openAIImageModelKey),
+                    quality: KeychainHelper.load(key: KeychainHelper.openAIImageQualityKey),
+                    outputFormat: KeychainHelper.load(key: KeychainHelper.openAIImageOutputFormatKey),
+                    moderation: KeychainHelper.load(key: KeychainHelper.openAIImageModerationKey)
+                )
+                imageResult = try await OpenAIImageService.shared.generateImage(
+                    prompt: openAIPrompt,
+                    sourceImageData: sourceImageData,
+                    sourceMimeType: sourceMimeType,
+                    imageSize: openAIImageSize?.rawValue,
+                    quality: args.quality,
+                    outputFormat: args.outputFormat,
+                    outputCompression: args.outputCompression,
+                    background: args.background,
+                    moderation: args.moderation
+                )
+                resolvedImageSize = openAIImageSize?.rawValue ?? "default"
+            }
+
+            let imageData = imageResult.data
+            let mimeType = imageResult.mimeType
+            let spendUSD = imageResult.spendUSD
             
             // Save generated image to documents folder so Gemini can reference it later
-            let fileExtension = mimeType.contains("png") ? "png" : "jpg"
+            let fileExtension: String
+            switch mimeType.lowercased() {
+            case let type where type.contains("png"):
+                fileExtension = "png"
+            case let type where type.contains("webp"):
+                fileExtension = "webp"
+            default:
+                fileExtension = "jpg"
+            }
             let fileName = "generated_\(UUID().uuidString).\(fileExtension)"
             let documentsURL = documentsDirectory.appendingPathComponent(fileName)
             let imagesURL = imagesDirectory.appendingPathComponent(fileName)
@@ -1749,7 +1863,7 @@ extension ToolExecutor {
             
             // Result text (image will be injected as multimodal content)
             let result = """
-            {"success": true, "filename": "\(fileName)", "mimeType": "\(mimeType)", "sizeBytes": \(imageData.count), "resolution": "\(normalizedImageSize?.rawValue ?? "default")", "message": "\(isEdit ? "Image transformed" : "Image generated") successfully. You can now see and analyze the result."}
+            {"success": true, "provider": "\(provider.toolName)", "filename": "\(fileName)", "mimeType": "\(mimeType)", "sizeBytes": \(imageData.count), "resolution": "\(resolvedImageSize)", "message": "\(isEdit ? "Image transformed" : "Image generated") successfully. You can now see and analyze the result."}
             """
             
             return ToolResultMessage(
@@ -2349,12 +2463,24 @@ extension ToolExecutor {
 struct GenerateImageArguments: Codable {
     let prompt: String
     let sourceImage: String?
+    let sourceImageRole: String?
     let size: String?
+    let quality: String?
+    let outputFormat: String?
+    let outputCompression: Int?
+    let background: String?
+    let moderation: String?
     
     enum CodingKeys: String, CodingKey {
         case prompt
         case sourceImage = "source_image"
+        case sourceImageRole = "source_image_role"
         case size
+        case quality
+        case outputFormat = "output_format"
+        case outputCompression = "output_compression"
+        case background
+        case moderation
     }
 }
 

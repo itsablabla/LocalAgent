@@ -348,6 +348,15 @@ class ConversationManager: ObservableObject {
                 pricing: configuredGeminiImagePricing()
             )
         }
+        if let openAIImageApiKey = KeychainHelper.load(key: KeychainHelper.openAIImageApiKeyKey), !openAIImageApiKey.isEmpty {
+            await OpenAIImageService.shared.configure(
+                apiKey: openAIImageApiKey,
+                model: KeychainHelper.load(key: KeychainHelper.openAIImageModelKey),
+                quality: KeychainHelper.load(key: KeychainHelper.openAIImageQualityKey),
+                outputFormat: KeychainHelper.load(key: KeychainHelper.openAIImageOutputFormatKey),
+                moderation: KeychainHelper.load(key: KeychainHelper.openAIImageModerationKey)
+            )
+        }
         
         error = nil
     }

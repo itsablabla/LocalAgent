@@ -40,11 +40,17 @@ struct SettingsView: View {
 
 
     // Image generation settings
+    @State private var imageGenerationProvider: String = KeychainHelper.defaultImageGenerationProvider
     @State private var geminiApiKey: String = ""
     @State private var geminiImageModel: String = KeychainHelper.defaultGeminiImageModel
     @State private var geminiImageInputCostPerMillionTokensUSD: String = ""
     @State private var geminiImageOutputTextCostPerMillionTokensUSD: String = ""
     @State private var geminiImageOutputImageCostPerMillionTokensUSD: String = ""
+    @State private var openAIImageApiKey: String = ""
+    @State private var openAIImageModel: String = KeychainHelper.defaultOpenAIImageModel
+    @State private var openAIImageQuality: String = KeychainHelper.defaultOpenAIImageQuality
+    @State private var openAIImageOutputFormat: String = KeychainHelper.defaultOpenAIImageOutputFormat
+    @State private var openAIImageModeration: String = KeychainHelper.defaultOpenAIImageModeration
 
     // Voice transcription settings
     @State private var voiceTranscriptionProvider: VoiceTranscriptionProvider = .defaultProvider
@@ -685,71 +691,115 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("API Key")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                SecureField("Gemini API Key", text: $geminiApiKey)
-                    .textFieldStyle(.roundedBorder)
+                Picker("Provider", selection: $imageGenerationProvider) {
+                    ForEach(ImageGenerationProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
 
-                TextField("Image Model (optional)", text: $geminiImageModel)
-                    .textFieldStyle(.roundedBorder)
-                    .disableAutocorrection(true)
-
-                Text("Leave blank to use the default image model: \(GeminiImagePricing.defaultModel)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                DisclosureGroup("Pricing Overrides", isExpanded: $isImagePricingExpanded) {
-                    HStack {
-                        Text("Input $ / 1M tokens")
-                        Spacer()
-                        TextField(
-                            KeychainHelper.defaultGeminiImageInputCostPerMillionTokensUSD,
-                            text: $geminiImageInputCostPerMillionTokensUSD
-                        )
+                if ImageGenerationProvider.fromStoredValue(imageGenerationProvider) == .gemini {
+                    Text("API Key")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    SecureField("Gemini API Key", text: $geminiApiKey)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                        .multilineTextAlignment(.trailing)
+
+                    TextField("Image Model (optional)", text: $geminiImageModel)
+                        .textFieldStyle(.roundedBorder)
+                        .disableAutocorrection(true)
+
+                    Text("Leave blank to use the default image model: \(GeminiImagePricing.defaultModel)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    DisclosureGroup("Pricing Overrides", isExpanded: $isImagePricingExpanded) {
+                        HStack {
+                            Text("Input $ / 1M tokens")
+                            Spacer()
+                            TextField(
+                                KeychainHelper.defaultGeminiImageInputCostPerMillionTokensUSD,
+                                text: $geminiImageInputCostPerMillionTokensUSD
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .multilineTextAlignment(.trailing)
+                        }
+
+                        HStack {
+                            Text("Output Text $ / 1M")
+                            Spacer()
+                            TextField(
+                                KeychainHelper.defaultGeminiImageOutputTextCostPerMillionTokensUSD,
+                                text: $geminiImageOutputTextCostPerMillionTokensUSD
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .multilineTextAlignment(.trailing)
+                        }
+
+                        HStack {
+                            Text("Output Image $ / 1M")
+                            Spacer()
+                            TextField(
+                                KeychainHelper.defaultGeminiImageOutputImageCostPerMillionTokensUSD,
+                                text: $geminiImageOutputImageCostPerMillionTokensUSD
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .multilineTextAlignment(.trailing)
+                        }
+
+                        Text("Leave blank for default rates. Set custom pricing if using a different model.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
-                    HStack {
-                        Text("Output Text $ / 1M")
-                        Spacer()
-                        TextField(
-                            KeychainHelper.defaultGeminiImageOutputTextCostPerMillionTokensUSD,
-                            text: $geminiImageOutputTextCostPerMillionTokensUSD
-                        )
+                    Link("Get your API key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                        .font(.caption)
+
+                    Text("This key is strictly used for image generation tools. Headless Gemini CLI will use the credentials established in your terminal (Ultra subscription).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("API Key")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    SecureField("OpenAI API Key", text: $openAIImageApiKey)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                        .multilineTextAlignment(.trailing)
+
+                    TextField(KeychainHelper.defaultOpenAIImageModel, text: $openAIImageModel)
+                        .textFieldStyle(.roundedBorder)
+                        .disableAutocorrection(true)
+
+                    Picker("Quality", selection: $openAIImageQuality) {
+                        Text("Auto").tag("auto")
+                        Text("Low").tag("low")
+                        Text("Medium").tag("medium")
+                        Text("High").tag("high")
                     }
 
-                    HStack {
-                        Text("Output Image $ / 1M")
-                        Spacer()
-                        TextField(
-                            KeychainHelper.defaultGeminiImageOutputImageCostPerMillionTokensUSD,
-                            text: $geminiImageOutputImageCostPerMillionTokensUSD
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                        .multilineTextAlignment(.trailing)
+                    Picker("Format", selection: $openAIImageOutputFormat) {
+                        Text("PNG").tag("png")
+                        Text("JPEG").tag("jpeg")
+                        Text("WebP").tag("webp")
                     }
 
-                    Text("Leave blank for default rates. Set custom pricing if using a different model.")
+                    Picker("Moderation", selection: $openAIImageModeration) {
+                        Text("Auto").tag("auto")
+                        Text("Low").tag("low")
+                    }
+
+                    Link("Get your API key from OpenAI", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                        .font(.caption)
+
+                    Text("The direct Image API does not expose a reasoning-effort setting; reasoning only applies when a mainline model calls image generation through Responses.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 
-                Link("Get your API key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                    .font(.caption)
-                
-                Text("This key is strictly used for image generation tools. Headless Gemini CLI will use the credentials established in your terminal (Ultra subscription).")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
             } header: {
-                Label("Image Generation (Gemini)", systemImage: "photo.badge.plus")
+                Label("Image Generation", systemImage: "photo.badge.plus")
             }
 
             // MARK: - Service Keys
@@ -860,11 +910,17 @@ struct SettingsView: View {
         .onAppear { serviceKeys = KeychainHelper.loadServiceKeys() }
         .onChange(of: serperApiKey) { _ in autoSave { saveWebSearchSection() } }
         .onChange(of: jinaApiKey) { _ in autoSave { saveWebSearchSection() } }
+        .onChange(of: imageGenerationProvider) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiApiKey) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiImageModel) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiImageInputCostPerMillionTokensUSD) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiImageOutputTextCostPerMillionTokensUSD) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiImageOutputImageCostPerMillionTokensUSD) { _ in autoSave { saveImageGenSection() } }
+        .onChange(of: openAIImageApiKey) { _ in autoSave { saveImageGenSection() } }
+        .onChange(of: openAIImageModel) { _ in autoSave { saveImageGenSection() } }
+        .onChange(of: openAIImageQuality) { _ in autoSave { saveImageGenSection() } }
+        .onChange(of: openAIImageOutputFormat) { _ in autoSave { saveImageGenSection() } }
+        .onChange(of: openAIImageModeration) { _ in autoSave { saveImageGenSection() } }
         .alert("Delete Service Key?", isPresented: $showingDeleteKeyConfirmation) {
             Button("Cancel", role: .cancel) { keyToDelete = nil }
             Button("Delete", role: .destructive) {
@@ -1570,6 +1626,18 @@ struct SettingsView: View {
         return formatUSD(parsed)
     }
 
+    private func normalizeOption(
+        _ rawValue: String,
+        defaultValue: String,
+        allowedValues: Set<String>
+    ) -> String {
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty, allowedValues.contains(normalized) else {
+            return defaultValue
+        }
+        return normalized
+    }
+
     private func configuredGeminiImageModelValue() -> String {
         let normalizedModel = geminiImageModel.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalizedModel.isEmpty ? GeminiImagePricing.defaultModel : normalizedModel
@@ -1612,6 +1680,30 @@ struct SettingsView: View {
                 model: model,
                 pricing: pricing
             )
+        }
+    }
+
+    private func refreshOpenAIImageServiceConfiguration() {
+        let normalizedAPIKey = openAIImageApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAPIKey.isEmpty else { return }
+
+        Task {
+            await OpenAIImageService.shared.configure(
+                apiKey: normalizedAPIKey,
+                model: openAIImageModel,
+                quality: openAIImageQuality,
+                outputFormat: openAIImageOutputFormat,
+                moderation: openAIImageModeration
+            )
+        }
+    }
+
+    private func refreshImageGenerationServiceConfiguration() {
+        switch ImageGenerationProvider.fromStoredValue(imageGenerationProvider) {
+        case .gemini:
+            refreshGeminiImageServiceConfiguration()
+        case .openAI:
+            refreshOpenAIImageServiceConfiguration()
         }
     }
 
@@ -1672,11 +1764,19 @@ struct SettingsView: View {
 
 
         // Load image generation settings
+        imageGenerationProvider = ImageGenerationProvider.fromStoredValue(
+            KeychainHelper.load(key: KeychainHelper.imageGenerationProviderKey)
+        ).rawValue
         geminiApiKey = KeychainHelper.load(key: KeychainHelper.geminiApiKeyKey) ?? ""
         geminiImageModel = KeychainHelper.load(key: KeychainHelper.geminiImageModelKey) ?? KeychainHelper.defaultGeminiImageModel
         geminiImageInputCostPerMillionTokensUSD = KeychainHelper.load(key: KeychainHelper.geminiImageInputCostPerMillionTokensUSDKey) ?? ""
         geminiImageOutputTextCostPerMillionTokensUSD = KeychainHelper.load(key: KeychainHelper.geminiImageOutputTextCostPerMillionTokensUSDKey) ?? ""
         geminiImageOutputImageCostPerMillionTokensUSD = KeychainHelper.load(key: KeychainHelper.geminiImageOutputImageCostPerMillionTokensUSDKey) ?? ""
+        openAIImageApiKey = KeychainHelper.load(key: KeychainHelper.openAIImageApiKeyKey) ?? ""
+        openAIImageModel = KeychainHelper.load(key: KeychainHelper.openAIImageModelKey) ?? KeychainHelper.defaultOpenAIImageModel
+        openAIImageQuality = KeychainHelper.load(key: KeychainHelper.openAIImageQualityKey) ?? KeychainHelper.defaultOpenAIImageQuality
+        openAIImageOutputFormat = KeychainHelper.load(key: KeychainHelper.openAIImageOutputFormatKey) ?? KeychainHelper.defaultOpenAIImageOutputFormat
+        openAIImageModeration = KeychainHelper.load(key: KeychainHelper.openAIImageModerationKey) ?? KeychainHelper.defaultOpenAIImageModeration
 
         // Load voice transcription settings
         voiceTranscriptionProvider = VoiceTranscriptionProvider.fromStoredValue(
@@ -1784,6 +1884,10 @@ struct SettingsView: View {
             refreshOpenRouterSpendCounters()
             
             // Save image generation settings
+            let normalizedImageProvider = ImageGenerationProvider.fromStoredValue(imageGenerationProvider).rawValue
+            try KeychainHelper.save(key: KeychainHelper.imageGenerationProviderKey, value: normalizedImageProvider)
+            imageGenerationProvider = normalizedImageProvider
+
             let normalizedGeminiAPIKey = geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if normalizedGeminiAPIKey.isEmpty {
                 try? KeychainHelper.delete(key: KeychainHelper.geminiApiKeyKey)
@@ -1825,7 +1929,48 @@ struct SettingsView: View {
                 try? KeychainHelper.delete(key: KeychainHelper.geminiImageOutputImageCostPerMillionTokensUSDKey)
             }
 
-            refreshGeminiImageServiceConfiguration()
+            let normalizedOpenAIAPIKey = openAIImageApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedOpenAIAPIKey.isEmpty {
+                try? KeychainHelper.delete(key: KeychainHelper.openAIImageApiKeyKey)
+            } else {
+                try KeychainHelper.save(key: KeychainHelper.openAIImageApiKeyKey, value: normalizedOpenAIAPIKey)
+            }
+            openAIImageApiKey = normalizedOpenAIAPIKey
+
+            let normalizedOpenAIImageModel = openAIImageModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedOpenAIImageModel.isEmpty || normalizedOpenAIImageModel == KeychainHelper.defaultOpenAIImageModel {
+                openAIImageModel = KeychainHelper.defaultOpenAIImageModel
+                try? KeychainHelper.delete(key: KeychainHelper.openAIImageModelKey)
+            } else {
+                openAIImageModel = normalizedOpenAIImageModel
+                try KeychainHelper.save(key: KeychainHelper.openAIImageModelKey, value: normalizedOpenAIImageModel)
+            }
+
+            let normalizedOpenAIQuality = normalizeOption(
+                openAIImageQuality,
+                defaultValue: KeychainHelper.defaultOpenAIImageQuality,
+                allowedValues: ["auto", "low", "medium", "high"]
+            )
+            openAIImageQuality = normalizedOpenAIQuality
+            try KeychainHelper.save(key: KeychainHelper.openAIImageQualityKey, value: normalizedOpenAIQuality)
+
+            let normalizedOpenAIFormat = normalizeOption(
+                openAIImageOutputFormat,
+                defaultValue: KeychainHelper.defaultOpenAIImageOutputFormat,
+                allowedValues: ["png", "jpeg", "webp"]
+            )
+            openAIImageOutputFormat = normalizedOpenAIFormat
+            try KeychainHelper.save(key: KeychainHelper.openAIImageOutputFormatKey, value: normalizedOpenAIFormat)
+
+            let normalizedOpenAIModeration = normalizeOption(
+                openAIImageModeration,
+                defaultValue: KeychainHelper.defaultOpenAIImageModeration,
+                allowedValues: ["auto", "low"]
+            )
+            openAIImageModeration = normalizedOpenAIModeration
+            try KeychainHelper.save(key: KeychainHelper.openAIImageModerationKey, value: normalizedOpenAIModeration)
+
+            refreshImageGenerationServiceConfiguration()
 
             // Save voice transcription settings
             let normalizedVoiceProvider = VoiceTranscriptionProvider.fromStoredValue(voiceTranscriptionProvider.rawValue)
@@ -2088,6 +2233,10 @@ struct SettingsView: View {
     }
     
     private func saveImageGenSection() {
+        let normalizedProvider = ImageGenerationProvider.fromStoredValue(imageGenerationProvider).rawValue
+        try? KeychainHelper.save(key: KeychainHelper.imageGenerationProviderKey, value: normalizedProvider)
+        imageGenerationProvider = normalizedProvider
+
         let normalizedGeminiAPIKey = geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalizedGeminiAPIKey.isEmpty {
             try? KeychainHelper.delete(key: KeychainHelper.geminiApiKeyKey)
@@ -2129,7 +2278,48 @@ struct SettingsView: View {
             geminiImageOutputImageCostPerMillionTokensUSD = ""
         }
 
-        refreshGeminiImageServiceConfiguration()
+        let normalizedOpenAIAPIKey = openAIImageApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedOpenAIAPIKey.isEmpty {
+            try? KeychainHelper.delete(key: KeychainHelper.openAIImageApiKeyKey)
+        } else {
+            try? KeychainHelper.save(key: KeychainHelper.openAIImageApiKeyKey, value: normalizedOpenAIAPIKey)
+        }
+        openAIImageApiKey = normalizedOpenAIAPIKey
+
+        let normalizedOpenAIImageModel = openAIImageModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedOpenAIImageModel.isEmpty || normalizedOpenAIImageModel == KeychainHelper.defaultOpenAIImageModel {
+            try? KeychainHelper.delete(key: KeychainHelper.openAIImageModelKey)
+            openAIImageModel = KeychainHelper.defaultOpenAIImageModel
+        } else {
+            try? KeychainHelper.save(key: KeychainHelper.openAIImageModelKey, value: normalizedOpenAIImageModel)
+            openAIImageModel = normalizedOpenAIImageModel
+        }
+
+        let normalizedOpenAIQuality = normalizeOption(
+            openAIImageQuality,
+            defaultValue: KeychainHelper.defaultOpenAIImageQuality,
+            allowedValues: ["auto", "low", "medium", "high"]
+        )
+        try? KeychainHelper.save(key: KeychainHelper.openAIImageQualityKey, value: normalizedOpenAIQuality)
+        openAIImageQuality = normalizedOpenAIQuality
+
+        let normalizedOpenAIFormat = normalizeOption(
+            openAIImageOutputFormat,
+            defaultValue: KeychainHelper.defaultOpenAIImageOutputFormat,
+            allowedValues: ["png", "jpeg", "webp"]
+        )
+        try? KeychainHelper.save(key: KeychainHelper.openAIImageOutputFormatKey, value: normalizedOpenAIFormat)
+        openAIImageOutputFormat = normalizedOpenAIFormat
+
+        let normalizedOpenAIModeration = normalizeOption(
+            openAIImageModeration,
+            defaultValue: KeychainHelper.defaultOpenAIImageModeration,
+            allowedValues: ["auto", "low"]
+        )
+        try? KeychainHelper.save(key: KeychainHelper.openAIImageModerationKey, value: normalizedOpenAIModeration)
+        openAIImageModeration = normalizedOpenAIModeration
+
+        refreshImageGenerationServiceConfiguration()
     }
 
     private func saveVoiceTranscriptionSection() {
