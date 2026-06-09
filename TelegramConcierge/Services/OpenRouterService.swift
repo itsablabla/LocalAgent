@@ -1234,11 +1234,11 @@ actor OpenRouterService {
                         let mimeType = refImageFileName.hasSuffix(".png") ? "image/png" : "image/jpeg"
                         let dataURL = "data:\(mimeType);base64,\(base64String)"
                         contentParts.append(.image(ImageURL(url: dataURL)))
-                        textHints.append("[Referenced image: \(refImageFileName)]")
+                        textHints.append("[Referenced image: \(imageURL.path)]")
                     } else {
                         let desc = await FileDescriptionService.shared.get(filename: refImageFileName)
-                        let label = desc != nil ? "\(refImageFileName) — \"\(desc!)\"" : refImageFileName
-                        textHints.append("[Referenced image: \(label) — use read_file to view]")
+                        let descSuffix = desc != nil ? " — \"\(desc!)\"" : ""
+                        textHints.append("[Referenced image: \(imageURL.path)\(descSuffix) — use read_file to view]")
                     }
                 }
 
@@ -1261,19 +1261,19 @@ actor OpenRouterService {
                                 let pageImages = renderPDFPagesToImages(documentData, filename: refDocFileName)
                                 if !pageImages.isEmpty {
                                     contentParts.append(contentsOf: pageImages)
-                                    textHints.append("[Referenced document: \(refDocFileName) (\(pageImages.count) pages)]")
+                                    textHints.append("[Referenced document: \(documentURL.path) (\(pageImages.count) pages)]")
                                 }
                             } else {
                                 let base64String = documentData.base64EncodedString()
                                 let dataURL = "data:\(mimeType);base64,\(base64String)"
                                 contentParts.append(.image(ImageURL(url: dataURL)))
-                                textHints.append("[Referenced document: \(refDocFileName)]")
+                                textHints.append("[Referenced document: \(documentURL.path)]")
                             }
                         }
                     } else {
                         let desc = await FileDescriptionService.shared.get(filename: refDocFileName)
-                        let label = desc != nil ? "\(refDocFileName) — \"\(desc!)\"" : refDocFileName
-                        textHints.append("[Referenced document: \(label) — use read_file to view]")
+                        let descSuffix = desc != nil ? " — \"\(desc!)\"" : ""
+                        textHints.append("[Referenced document: \(documentURL.path)\(descSuffix) — use read_file to view]")
                     }
                 }
 
@@ -1285,11 +1285,11 @@ actor OpenRouterService {
                         let mimeType = imageFileName.hasSuffix(".png") ? "image/png" : "image/jpeg"
                         let dataURL = "data:\(mimeType);base64,\(base64String)"
                         contentParts.append(.image(ImageURL(url: dataURL)))
-                        textHints.append("[Image: \(imageFileName)]")
+                        textHints.append("[Image: \(imageURL.path)]")
                     } else {
                         let desc = await FileDescriptionService.shared.get(filename: imageFileName)
-                        let label = desc != nil ? "\(imageFileName) — \"\(desc!)\"" : imageFileName
-                        textHints.append("[Image: \(label) — use read_file to view]")
+                        let descSuffix = desc != nil ? " — \"\(desc!)\"" : ""
+                        textHints.append("[Image: \(imageURL.path)\(descSuffix) — use read_file to view]")
                     }
                 }
 
@@ -1313,25 +1313,25 @@ actor OpenRouterService {
                                 if !pageImages.isEmpty {
                                     print("[OpenRouterService] Rendered \(pageImages.count) page(s) from \(documentFileName) as PNG for local model")
                                     contentParts.append(contentsOf: pageImages)
-                                    textHints.append("[Document: \(documentFileName) (\(pageImages.count) pages)]")
+                                    textHints.append("[Document: \(documentURL.path) (\(pageImages.count) pages)]")
                                 } else {
                                     print("[OpenRouterService] Failed to render PDF \(documentFileName) to images")
-                                    textHints.append("[Document: \(documentFileName) — render failed, use read_file to view]")
+                                    textHints.append("[Document: \(documentURL.path) — render failed, use read_file to view]")
                                 }
                             } else {
                                 let base64String = documentData.base64EncodedString()
                                 let dataURL = "data:\(mimeType);base64,\(base64String)"
                                 contentParts.append(.image(ImageURL(url: dataURL)))
-                                textHints.append("[Document: \(documentFileName)]")
+                                textHints.append("[Document: \(documentURL.path)]")
                             }
                         } else {
                             print("[OpenRouterService] Skipping inline document \(documentFileName) due to unsupported MIME type: \(mimeType)")
-                            textHints.append("[Document: \(documentFileName) — not viewable inline]")
+                            textHints.append("[Document: \(documentURL.path) — not viewable inline]")
                         }
                     } else {
                         let desc = await FileDescriptionService.shared.get(filename: documentFileName)
-                        let label = desc != nil ? "\(documentFileName) — \"\(desc!)\"" : documentFileName
-                        textHints.append("[Document: \(label) — use read_file to view]")
+                        let descSuffix = desc != nil ? " — \"\(desc!)\"" : ""
+                        textHints.append("[Document: \(documentURL.path)\(descSuffix) — use read_file to view]")
                     }
                 }
 
