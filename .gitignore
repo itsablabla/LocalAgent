@@ -25,3 +25,6 @@ DerivedData/
 # Optional local files
 *.swp
 *.tmp
+
+# Local xcodebuild output
+build/
