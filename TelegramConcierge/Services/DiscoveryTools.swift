@@ -13,7 +13,11 @@ import Foundation
 enum DiscoveryTools {
 
     static let maxResults = 100
+    static let maxResultsHardCap = 500
     static let maxLineLength = 2000
+    /// Upper bound on parsed output lines when computing totals — keeps a
+    /// pathological match-everything grep from ballooning memory.
+    static let parseBound = 5000
 
     static let bakedInIgnores: Set<String> = [
         ".git", "node_modules", "__pycache__", ".venv", "venv",
@@ -109,10 +113,12 @@ enum DiscoveryTools {
         let rg = locateExecutable("rg")
         guard let rg else { return nil }
 
+        // NOTE: no --sort=modified — sorting forces ripgrep into single-threaded
+        // mode, which is dramatically slower on large trees. We run the search
+        // fully parallel and sort the parsed results by file mtime in Swift below.
         var args: [String] = [
             "--color=never",
-            "--max-columns=\(maxLineLength)",
-            "--sort=modified"
+            "--max-columns=\(maxLineLength)"
         ]
         if caseInsensitive { args.append("-i") }
         if multiline { args.append("-U"); args.append("--multiline-dotall") }
@@ -159,55 +165,85 @@ enum DiscoveryTools {
 
         switch outputMode {
         case .filesWithMatches:
-            var files: [String] = []
-            var truncated = false
+            // Parse everything (bounded), sort by mtime, then cap — so the
+            // returned slice is the most-recently-modified files and the
+            // total is known.
+            var allFiles: [String] = []
+            var totalExact = true
             for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
-                if files.count >= maxResults { truncated = true; break }
-                files.append(String(line))
+                if allFiles.count >= parseBound { totalExact = false; break }
+                allFiles.append(String(line))
             }
-            return OpResult(content: jsonString([
+            let sortedFiles = sortPathsByMtime(allFiles)
+            let truncated = sortedFiles.count > maxResults || !totalExact
+            let capped = Array(sortedFiles.prefix(maxResults))
+            var payload: [String: Any] = [
                 "success": true,
                 "backend": "ripgrep",
                 "mode": "files_with_matches",
                 "pattern": pattern,
                 "path": searchPath,
-                "files": files,
-                "count": files.count,
-                "truncated": truncated
-            ]))
+                "files": capped,
+                "count": capped.count,
+                "truncated": truncated,
+                "total_files": sortedFiles.count
+            ]
+            if !totalExact { payload["total_is_lower_bound"] = true }
+            return OpResult(content: jsonString(payload))
 
         case .count:
             var counts: [[String: Any]] = []
-            var truncated = false
+            var totalExact = true
             for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
-                if counts.count >= maxResults { truncated = true; break }
+                if counts.count >= parseBound { totalExact = false; break }
                 // rg -c format: "path:N"
                 let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2, let n = Int(parts[1]) else { continue }
                 counts.append(["file": String(parts[0]), "count": n])
             }
-            return OpResult(content: jsonString([
+            let sortedCounts = sortEntriesByFileMtime(counts)
+            let truncated = sortedCounts.count > maxResults || !totalExact
+            let capped = Array(sortedCounts.prefix(maxResults))
+            var payload: [String: Any] = [
                 "success": true,
                 "backend": "ripgrep",
                 "mode": "count",
                 "pattern": pattern,
                 "path": searchPath,
-                "files": counts,
-                "file_count": counts.count,
-                "truncated": truncated
-            ]))
+                "files": capped,
+                "file_count": capped.count,
+                "truncated": truncated,
+                "total_files": sortedCounts.count
+            ]
+            if !totalExact { payload["total_is_lower_bound"] = true }
+            return OpResult(content: jsonString(payload))
 
         case .content:
-            var matches: [[String: Any]] = []
+            var entries: [[String: Any]] = []
+            var appendedMatches = 0     // only kind=="match" counts toward the cap
+            var totalMatches = 0        // all match lines seen (context lines excluded)
             var truncated = false
+            var stopAppending = false
+            var totalExact = true
+            var parsedLines = 0
             let wantContext = contextBefore > 0 || contextAfter > 0
             for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
-                if matches.count >= maxResults { truncated = true; break }
+                parsedLines += 1
+                if parsedLines > parseBound { totalExact = false; break }
                 let raw = String(line)
                 if raw == "--" { continue } // ripgrep context-group separator
                 // Matches use `file:N:text`; context lines use `file-N-text`.
                 // We only need to detect which is which; record `kind` for context.
                 guard let (filePath, lineNo, text, kind) = parseRgLine(raw, wantContext: wantContext) else { continue }
+                if kind == "match" {
+                    totalMatches += 1
+                    if appendedMatches >= maxResults {
+                        // Keep scanning to compute the total, but stop emitting.
+                        stopAppending = true
+                        truncated = true
+                    }
+                }
+                if stopAppending { continue }
                 var clipped = text
                 if clipped.count > maxLineLength {
                     clipped = String(clipped.prefix(maxLineLength)) + "… [truncated]"
@@ -218,18 +254,23 @@ enum DiscoveryTools {
                     "text": clipped
                 ]
                 if wantContext { entry["kind"] = kind }
-                matches.append(entry)
+                entries.append(entry)
+                if kind == "match" { appendedMatches += 1 }
             }
-            return OpResult(content: jsonString([
+            let sorted = sortEntriesByFileMtime(entries)
+            var payload: [String: Any] = [
                 "success": true,
                 "backend": "ripgrep",
                 "mode": "content",
                 "pattern": pattern,
                 "path": searchPath,
-                "matches": matches,
-                "match_count": matches.count,
-                "truncated": truncated
-            ]))
+                "matches": sorted,
+                "match_count": appendedMatches,
+                "truncated": truncated,
+                "total_matches": totalMatches
+            ]
+            if !totalExact { payload["total_is_lower_bound"] = true }
+            return OpResult(content: jsonString(payload))
         }
     }
 
@@ -272,6 +313,44 @@ enum DiscoveryTools {
             }
         }
         return nil
+    }
+
+    /// Stable-sort grep entries by their file's mtime (descending), preserving
+    /// the original per-file line order. Replaces ripgrep's --sort=modified,
+    /// which would force the search itself into single-threaded mode.
+    private static func sortEntriesByFileMtime(_ entries: [[String: Any]]) -> [[String: Any]] {
+        guard entries.count > 1 else { return entries }
+        var order: [String] = []
+        var groups: [String: [[String: Any]]] = [:]
+        for e in entries {
+            let f = e["file"] as? String ?? ""
+            if groups[f] == nil { order.append(f) }
+            groups[f, default: []].append(e)
+        }
+        let mtimes = mtimeLookup(for: order)
+        let sortedFiles = order.sorted {
+            (mtimes[$0] ?? .distantPast) > (mtimes[$1] ?? .distantPast)
+        }
+        return sortedFiles.flatMap { groups[$0] ?? [] }
+    }
+
+    /// Sort plain file paths by mtime descending.
+    private static func sortPathsByMtime(_ paths: [String]) -> [String] {
+        guard paths.count > 1 else { return paths }
+        let mtimes = mtimeLookup(for: paths)
+        return paths.sorted {
+            (mtimes[$0] ?? .distantPast) > (mtimes[$1] ?? .distantPast)
+        }
+    }
+
+    private static func mtimeLookup(for paths: [String]) -> [String: Date] {
+        var mtimes: [String: Date] = [:]
+        mtimes.reserveCapacity(paths.count)
+        for p in paths where mtimes[p] == nil {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: p)
+            mtimes[p] = attrs?[.modificationDate] as? Date ?? .distantPast
+        }
+        return mtimes
     }
 
     private static func grepNative(
@@ -379,11 +458,12 @@ enum DiscoveryTools {
 
         // content mode
         var matches: [[String: Any]] = []
+        var appendedMatches = 0   // only actual match lines count toward the cap
         var truncated = false
         let wantContext = contextBefore > 0 || contextAfter > 0
 
         for candidate in candidates {
-            if matches.count >= maxResults { truncated = true; break }
+            if appendedMatches >= maxResults { truncated = true; break }
             guard let data = try? Data(contentsOf: candidate.url, options: .mappedIfSafe) else { continue }
             if data.prefix(4096).contains(0) { continue }
             guard let text = String(data: data, encoding: .utf8) else { continue }
@@ -409,7 +489,8 @@ enum DiscoveryTools {
             let emit = emitSet.sorted()
 
             for i in emit {
-                if matches.count >= maxResults { truncated = true; break }
+                let isMatch = matchedLines.contains(i)
+                if isMatch, appendedMatches >= maxResults { truncated = true; break }
                 var t = lines[i]
                 if t.count > maxLineLength {
                     t = String(t.prefix(maxLineLength)) + "… [truncated]"
@@ -419,8 +500,9 @@ enum DiscoveryTools {
                     "line": i + 1,
                     "text": t
                 ]
-                if wantContext { entry["kind"] = matchedLines.contains(i) ? "match" : "context" }
+                if wantContext { entry["kind"] = isMatch ? "match" : "context" }
                 matches.append(entry)
+                if isMatch { appendedMatches += 1 }
             }
         }
 
@@ -431,7 +513,7 @@ enum DiscoveryTools {
             "pattern": pattern,
             "path": searchPath,
             "matches": matches,
-            "match_count": matches.count,
+            "match_count": appendedMatches,
             "truncated": truncated
         ]))
     }
@@ -458,6 +540,19 @@ enum DiscoveryTools {
         let matchPattern = pattern.hasPrefix("./") ? String(pattern.dropFirst(2)) : pattern
         let pathQualified = matchPattern.contains("/")
         let recursive = matchPattern.contains("**") || pathQualified
+
+        // Prefer ripgrep's parallel, .gitignore-aware file walker. Falls back
+        // to the native FileManager sweep when rg is missing or errors.
+        if let rgResult = globViaRipgrep(
+            matchPattern: matchPattern,
+            originalPattern: pattern,
+            root: root,
+            recursive: recursive,
+            maxResults: maxResults
+        ) {
+            return rgResult
+        }
+
         let regex: NSRegularExpression
         do {
             regex = try NSRegularExpression(pattern: globToRegex(matchPattern))
@@ -507,12 +602,69 @@ enum DiscoveryTools {
 
         return OpResult(content: jsonString([
             "success": true,
+            "backend": "native",
             "pattern": pattern,
             "path": root,
             "files": capped.map { $0.path },
             "count": capped.count,
-            "truncated": truncated
+            "truncated": truncated,
+            "total_files": hits.count
         ]))
+    }
+
+    /// Glob via `rg --files --glob <pattern>`: parallel directory walk that
+    /// also honors .gitignore (the native fallback only knows the baked-in
+    /// ignore list). Returns nil when rg is unavailable or errors, so the
+    /// caller can fall back to the native sweep.
+    private static func globViaRipgrep(
+        matchPattern: String,
+        originalPattern: String,
+        root: String,
+        recursive: Bool,
+        maxResults: Int
+    ) -> OpResult? {
+        guard let rg = locateExecutable("rg") else { return nil }
+        var args: [String] = ["--files", "--color=never"]
+        // Non-recursive basename patterns (e.g. "*.swift") match immediate
+        // children only — mirror the native semantics with --max-depth 1,
+        // since rg's gitignore-style globs would otherwise match at any depth.
+        if !recursive {
+            args.append("--max-depth")
+            args.append("1")
+        }
+        for ignore in bakedInIgnores {
+            args.append("--glob")
+            args.append("!\(ignore)/")
+        }
+        args.append("--glob")
+        args.append(matchPattern)
+        args.append(root)
+
+        let (out, _, status) = runProcess(executable: rg, args: args, timeoutSeconds: 30)
+        // rg exits 1 when nothing matched — that's a valid empty result.
+        guard status == 0 || status == 1 else { return nil }
+
+        var paths: [String] = []
+        var totalExact = true
+        for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
+            if paths.count >= parseBound { totalExact = false; break }
+            paths.append(String(line))
+        }
+        let sorted = sortPathsByMtime(paths)
+        let truncated = sorted.count > maxResults || !totalExact
+        let capped = Array(sorted.prefix(maxResults))
+        var payload: [String: Any] = [
+            "success": true,
+            "backend": "ripgrep",
+            "pattern": originalPattern,
+            "path": root,
+            "files": capped,
+            "count": capped.count,
+            "truncated": truncated,
+            "total_files": sorted.count
+        ]
+        if !totalExact { payload["total_is_lower_bound"] = true }
+        return OpResult(content: jsonString(payload))
     }
 
     // MARK: - list_dir
@@ -655,10 +807,14 @@ enum DiscoveryTools {
         )
     }
 
-    /// Convert a shell-style glob (supporting *, ?, **/, and character classes) into a regex anchored to the full candidate.
+    /// Convert a shell-style glob (supporting *, ?, **/, {a,b} alternation, and
+    /// character classes) into a regex anchored to the full candidate.
     private static func globToRegex(_ glob: String) -> String {
-        var out = "^"
-        let chars = Array(glob)
+        "^" + globToRegexBody(Array(glob)) + "$"
+    }
+
+    private static func globToRegexBody(_ chars: [Character]) -> String {
+        var out = ""
         var i = 0
         while i < chars.count {
             let ch = chars[i]
@@ -676,7 +832,38 @@ enum DiscoveryTools {
                 }
                 out += "[^/]*"
             case "?": out += "[^/]"
-            case ".", "(", ")", "{", "}", "^", "$", "+", "|", "\\":
+            case "{":
+                // Brace alternation: {ts,tsx} → (?:ts|tsx). Supports nesting.
+                var depth = 1
+                var j = i + 1
+                while j < chars.count {
+                    if chars[j] == "{" { depth += 1 }
+                    else if chars[j] == "}" {
+                        depth -= 1
+                        if depth == 0 { break }
+                    }
+                    j += 1
+                }
+                if depth == 0 {
+                    let inner = Array(chars[(i + 1)..<j])
+                    var alternatives: [[Character]] = [[]]
+                    var d = 0
+                    for c in inner {
+                        if c == "{" { d += 1 }
+                        else if c == "}" { d -= 1 }
+                        if c == ",", d == 0 {
+                            alternatives.append([])
+                        } else {
+                            alternatives[alternatives.count - 1].append(c)
+                        }
+                    }
+                    out += "(?:" + alternatives.map { globToRegexBody($0) }.joined(separator: "|") + ")"
+                    i = j + 1
+                    continue
+                }
+                // Unmatched brace — treat as a literal character.
+                out += "\\{"
+            case ".", "(", ")", "}", "^", "$", "+", "|", "\\":
                 out += "\\\(ch)"
             case "[":
                 out += "["   // passthrough — user wrote their own class
@@ -687,7 +874,6 @@ enum DiscoveryTools {
             }
             i += 1
         }
-        out += "$"
         return out
     }
 

@@ -110,10 +110,16 @@ actor LSPClient {
                     ],
                     "publishDiagnostics": [
                         "relatedInformation": true
+                    ],
+                    "documentSymbol": [
+                        "hierarchicalDocumentSymbolSupport": true
                     ]
                 ],
                 "workspace": [
-                    "workspaceFolders": true
+                    "workspaceFolders": true,
+                    "symbol": [
+                        "dynamicRegistration": false
+                    ]
                 ]
             ],
             "workspaceFolders": [
@@ -209,6 +215,29 @@ actor LSPClient {
         ]
         let result = try await sendRequest(method: "textDocument/references", params: params)
         return Self.extractLocations(from: result)
+    }
+
+    /// textDocument/documentSymbol → DocumentSymbol[] (hierarchical, modern
+    /// servers) or SymbolInformation[] (flat, legacy). Raw dicts either way;
+    /// the registry layer normalizes them into the agent-facing shape.
+    func documentSymbols(uri: URL) async throws -> [[String: Any]] {
+        let params: [String: Any] = [
+            "textDocument": ["uri": uri.absoluteString]
+        ]
+        let result = try await sendRequest(method: "textDocument/documentSymbol", params: params)
+        if let arr = result["__value__"] as? [Any] {
+            return arr.compactMap { $0 as? [String: Any] }
+        }
+        return []
+    }
+
+    /// workspace/symbol → SymbolInformation[] / WorkspaceSymbol[] matching the query.
+    func workspaceSymbols(query: String) async throws -> [[String: Any]] {
+        let result = try await sendRequest(method: "workspace/symbol", params: ["query": query])
+        if let arr = result["__value__"] as? [Any] {
+            return arr.compactMap { $0 as? [String: Any] }
+        }
+        return []
     }
 
     private static func extractHoverText(from result: [String: Any]) -> String? {

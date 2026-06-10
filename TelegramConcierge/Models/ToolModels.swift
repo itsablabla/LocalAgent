@@ -868,7 +868,7 @@ enum AvailableTools {
     static let grep = ToolDefinition(
         function: FunctionDefinition(
             name: "grep",
-            description: "A powerful search tool built on ripgrep.\n\nUsage:\n- ALWAYS use grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The grep tool has been optimized for correct permissions, ignore lists, and output shaping — the Bash equivalents bypass all of that.\n- Supports full regex syntax (e.g., \"log.*Error\", \"function\\s+\\w+\").\n- Filter files with the include glob parameter (e.g., \"*.js\", \"**/*.tsx\") or type parameter (e.g., \"js\", \"py\", \"rust\").\n- Output modes: \"content\" shows matching lines (supports context_before/context_after/context), \"files_with_matches\" shows only file paths (use when you only need to know which files contain the pattern — much cheaper), \"count\" shows match counts per file.\n- Pattern syntax: uses ripgrep (not POSIX grep) — literal braces need escaping (use `interface\\{\\}` to find `interface{}` in Go code).\n- Multiline matching: by default patterns match within single lines only. For cross-line patterns like `struct \\{[\\s\\S]*?field`, use `multiline: true`.\n- Use the Agent tool for open-ended searches requiring multiple rounds of grep/glob.\n- 100-entry cap, 2000-char-per-line cap, results sorted by mtime descending. Common project ignores (.git, node_modules, DerivedData, etc.) are always applied.",
+            description: "A powerful search tool built on ripgrep.\n\nUsage:\n- ALWAYS use grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The grep tool has been optimized for correct permissions, ignore lists, and output shaping — the Bash equivalents bypass all of that.\n- Supports full regex syntax (e.g., \"log.*Error\", \"function\\s+\\w+\").\n- Filter files with the include glob parameter (e.g., \"*.js\", \"**/*.tsx\") or type parameter (e.g., \"js\", \"py\", \"rust\").\n- Output modes: \"content\" shows matching lines (supports context_before/context_after/context), \"files_with_matches\" shows only file paths (use when you only need to know which files contain the pattern — much cheaper), \"count\" shows match counts per file.\n- Pattern syntax: uses ripgrep (not POSIX grep) — literal braces need escaping (use `interface\\{\\}` to find `interface{}` in Go code).\n- Multiline matching: by default patterns match within single lines only. For cross-line patterns like `struct \\{[\\s\\S]*?field`, use `multiline: true`.\n- Use the Agent tool for open-ended searches requiring multiple rounds of grep/glob.\n- Default 100 results (max_results raises this up to 500), 2000-char-per-line cap, results sorted by file mtime descending. Context lines do NOT count toward the cap — only matches do. When results are truncated, the payload includes total_matches/total_files so you can decide whether to narrow the pattern or raise max_results. Common project ignores (.git, node_modules, DerivedData, etc.) are always applied.",
             parameters: FunctionParameters(
                 properties: [
                     "pattern": ParameterProperty(type: "string", description: "Regex pattern to search for (ripgrep/ECMAScript-compatible)."),
@@ -884,7 +884,7 @@ enum AvailableTools {
                     "-A": ParameterProperty(type: "integer", description: "Legacy alias for context_after. Optional lines of context to show AFTER each match (content mode only)."),
                     "-B": ParameterProperty(type: "integer", description: "Legacy alias for context_before. Optional lines of context to show BEFORE each match (content mode only)."),
                     "-C": ParameterProperty(type: "integer", description: "Legacy alias for context. Optional lines of context to show BOTH before and after each match (content mode only)."),
-                    "max_results": ParameterProperty(type: "integer", description: "Optional. Maximum entries (lines/files) to return (default 100, hard cap 100).")
+                    "max_results": ParameterProperty(type: "integer", description: "Optional. Maximum matches/files to return (default 100, hard cap 500). Context lines do not count toward this limit.")
                 ],
                 required: ["pattern", "path"]
             )
@@ -894,12 +894,12 @@ enum AvailableTools {
     static let glob = ToolDefinition(
         function: FunctionDefinition(
             name: "glob",
-            description: "Fast file pattern matching tool that works with any codebase size.\n\nUsage:\n- Supports glob patterns like \"**/*.js\" or \"src/**/*.ts\".\n- Returns matching file paths sorted by modification time.\n- Use this tool when you need to find files by name patterns.\n- Use instead of bash find/ls — the glob tool has optimized permissions and output.\n- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead.\n- 100-file cap.",
+            description: "Fast file pattern matching tool that works with any codebase size.\n\nUsage:\n- Supports glob patterns like \"**/*.js\", \"src/**/*.ts\", or \"**/*.{ts,tsx}\" (brace alternation).\n- Returns matching file paths sorted by modification time (most recent first).\n- Use this tool when you need to find files by name patterns.\n- Use instead of bash find/ls — the glob tool has optimized permissions and output.\n- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead.\n- Uses ripgrep's parallel, .gitignore-aware file walker when available. Default 100 results (max_results raises this up to 500); when truncated, the payload includes total_files.",
             parameters: FunctionParameters(
                 properties: [
-                    "pattern": ParameterProperty(type: "string", description: "Glob pattern, e.g. '**/*.swift', 'README.md', 'src/*.ts'."),
+                    "pattern": ParameterProperty(type: "string", description: "Glob pattern, e.g. '**/*.swift', 'README.md', 'src/*.ts', '**/*.{ts,tsx}'."),
                     "path": ParameterProperty(type: "string", description: "Optional absolute directory to search under. Defaults to the user's home directory."),
-                    "max_results": ParameterProperty(type: "integer", description: "Optional. Maximum file paths to return (default 100, hard cap 100).")
+                    "max_results": ParameterProperty(type: "integer", description: "Optional. Maximum file paths to return (default 100, hard cap 500).")
                 ],
                 required: ["pattern"]
             )
@@ -1037,20 +1037,21 @@ enum AvailableTools {
     static let lsp = ToolDefinition(
         function: FunctionDefinition(
             name: "lsp",
-            description: "Query the language server for symbol information. Three modes: (1) 'hover' — type signature, docstring, brief description of the symbol at the given position. (2) 'definition' — go-to-definition, returns locations {path, line, column, end_line, end_column}. Much more accurate than grep because the language server understands scope and imports. (3) 'references' — find every use of a symbol across the workspace. Prefer over grep for code-symbol search. All positions are 1-indexed to match read_file output.",
+            description: "Query the language server for symbol information. Five modes: (1) 'hover' — type signature, docstring, brief description of the symbol at the given position. (2) 'definition' — go-to-definition, returns locations {path, line, column, end_line, end_column}. Much more accurate than grep because the language server understands scope and imports. (3) 'references' — find every use of a symbol across the workspace. Prefer over grep for code-symbol search. (4) 'document_symbols' — structural outline of a file: every class/struct/function/method with line ranges and nesting depth. Use this FIRST on large unfamiliar files — a 5,000-line file becomes a compact outline, far cheaper than paging through read_file. (5) 'workspace_symbols' — find a symbol by name across the whole workspace WITHOUT knowing its file or position; requires 'query' (name or prefix), and 'path' can be any file inside the workspace (it selects the language server and root). All positions are 1-indexed to match read_file output. 'line'/'column' are required only for hover/definition/references.",
             parameters: FunctionParameters(
                 properties: [
                     "mode": ParameterProperty(
                         type: "string",
                         description: "LSP operation to perform.",
-                        enumValues: ["hover", "definition", "references"]
+                        enumValues: ["hover", "definition", "references", "document_symbols", "workspace_symbols"]
                     ),
-                    "path": ParameterProperty(type: "string", description: "Absolute path to the file."),
-                    "line": ParameterProperty(type: "integer", description: "1-indexed line number of the symbol."),
-                    "column": ParameterProperty(type: "integer", description: "1-indexed column of the symbol."),
+                    "path": ParameterProperty(type: "string", description: "Absolute path to the file. For workspace_symbols: any file in the target workspace (selects the language server and root)."),
+                    "line": ParameterProperty(type: "integer", description: "1-indexed line number of the symbol. Required for hover/definition/references."),
+                    "column": ParameterProperty(type: "integer", description: "1-indexed column of the symbol. Required for hover/definition/references."),
+                    "query": ParameterProperty(type: "string", description: "For mode='workspace_symbols' only. Symbol name or prefix to search for (e.g. 'ConversationManager' or 'buildPrune')."),
                     "include_declaration": ParameterProperty(type: "boolean", description: "For mode='references' only. Include the declaration site in results. Default true.")
                 ],
-                required: ["mode", "path", "line", "column"]
+                required: ["mode", "path"]
             )
         )
     )

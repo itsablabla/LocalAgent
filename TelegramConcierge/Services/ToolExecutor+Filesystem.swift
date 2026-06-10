@@ -103,7 +103,7 @@ extension ToolExecutor {
         let contextC = args.int("context") ?? args.int("-C")
         let contextBefore = args.int("context_before") ?? args.int("-B") ?? contextC ?? 0
         let contextAfter = args.int("context_after") ?? args.int("-A") ?? contextC ?? 0
-        let maxResults = args.int("max_results") ?? DiscoveryTools.maxResults
+        let maxResults = min(max(args.int("max_results") ?? DiscoveryTools.maxResults, 1), DiscoveryTools.maxResultsHardCap)
         let result = await DiscoveryTools.grep(
             pattern: pattern,
             searchPath: path,
@@ -127,7 +127,7 @@ extension ToolExecutor {
             return "{\"error\": \"glob requires 'pattern'\"}"
         }
         let path = args.string("path")
-        let maxResults = args.int("max_results") ?? DiscoveryTools.maxResults
+        let maxResults = min(max(args.int("max_results") ?? DiscoveryTools.maxResults, 1), DiscoveryTools.maxResultsHardCap)
         let result = await DiscoveryTools.glob(pattern: pattern, searchPath: path, maxResults: maxResults)
         return result.content
     }
@@ -289,24 +289,34 @@ extension ToolExecutor {
     func executeLSP(_ call: ToolCall) async -> String {
         let args = parseArgs(call.function.arguments)
         guard let mode = args.string("mode") else {
-            return "{\"error\": \"lsp requires 'mode' (hover, definition, or references)\"}"
+            return "{\"error\": \"lsp requires 'mode' (hover, definition, references, document_symbols, or workspace_symbols)\"}"
         }
-        guard let path = args.string("path"),
-              let line = args.int("line"),
-              let column = args.int("column") else {
-            return "{\"error\": \"lsp requires 'path', 'line', 'column' (all 1-indexed like read_file output)\"}"
+        guard let path = args.string("path") else {
+            return "{\"error\": \"lsp requires 'path' (absolute)\"}"
         }
 
         switch mode {
-        case "hover":
-            return await LSPRegistry.shared.hover(path: path, line: line, column: column)
-        case "definition":
-            return await LSPRegistry.shared.definition(path: path, line: line, column: column)
-        case "references":
+        case "hover", "definition", "references":
+            guard let line = args.int("line"), let column = args.int("column") else {
+                return "{\"error\": \"mode='\(mode)' requires 'line' and 'column' (1-indexed like read_file output)\"}"
+            }
+            if mode == "hover" {
+                return await LSPRegistry.shared.hover(path: path, line: line, column: column)
+            }
+            if mode == "definition" {
+                return await LSPRegistry.shared.definition(path: path, line: line, column: column)
+            }
             let includeDeclaration = args.bool("include_declaration") ?? true
             return await LSPRegistry.shared.references(path: path, line: line, column: column, includeDeclaration: includeDeclaration)
+        case "document_symbols":
+            return await LSPRegistry.shared.documentSymbols(path: path)
+        case "workspace_symbols":
+            guard let query = args.string("query") else {
+                return "{\"error\": \"mode='workspace_symbols' requires 'query' (the symbol name or prefix to search for)\"}"
+            }
+            return await LSPRegistry.shared.workspaceSymbols(query: query, path: path)
         default:
-            return "{\"error\": \"Unknown mode '\(mode)'. Use 'hover', 'definition', or 'references'.\"}"
+            return "{\"error\": \"Unknown mode '\(mode)'. Use 'hover', 'definition', 'references', 'document_symbols', or 'workspace_symbols'.\"}"
         }
     }
 

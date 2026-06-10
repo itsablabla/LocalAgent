@@ -175,6 +175,126 @@ actor LSPRegistry {
         }
     }
 
+    /// Structural outline of a file: every class/struct/function/method with
+    /// its line range, flattened depth-first with a `depth` field preserving
+    /// the nesting. Far cheaper than paging a large file through read_file.
+    func documentSymbols(path: String) async -> String {
+        guard let (client, uri, serverID) = await prepareForQuery(path: path) else {
+            return jsonSkipped(path: path, reason: "no language server available for \(path)")
+        }
+        do {
+            let raw = try await client.documentSymbols(uri: uri)
+            var flat: [[String: Any]] = []
+            flattenSymbols(raw, depth: 0, into: &flat)
+            let cap = 500
+            let total = flat.count
+            let capped = Array(flat.prefix(cap))
+            var payload: [String: Any] = [
+                "success": true,
+                "path": path,
+                "server": serverID,
+                "symbols": capped,
+                "symbol_count": capped.count
+            ]
+            if total > cap {
+                payload["truncated"] = true
+                payload["total_symbols"] = total
+            }
+            return jsonString(payload)
+        } catch {
+            return jsonError("document_symbols failed: \(error)")
+        }
+    }
+
+    /// Find symbols by name across the whole workspace. `path` is any file in
+    /// the target workspace — it selects the language server and root.
+    func workspaceSymbols(query: String, path: String) async -> String {
+        guard let (client, _, serverID) = await prepareForQuery(path: path) else {
+            return jsonSkipped(path: path, reason: "no language server available for \(path)")
+        }
+        do {
+            let raw = try await client.workspaceSymbols(query: query)
+            let cap = 100
+            let total = raw.count
+            let mapped: [[String: Any]] = raw.prefix(cap).map { s in
+                var e: [String: Any] = ["name": s["name"] as? String ?? ""]
+                if let kind = s["kind"] as? Int { e["kind"] = Self.symbolKindName(kind) }
+                if let container = s["containerName"] as? String, !container.isEmpty {
+                    e["container"] = container
+                }
+                if let loc = s["location"] as? [String: Any] {
+                    for (k, v) in locationPayload(loc) { e[k] = v }
+                }
+                return e
+            }
+            var payload: [String: Any] = [
+                "success": true,
+                "query": query,
+                "server": serverID,
+                "symbols": mapped,
+                "symbol_count": mapped.count
+            ]
+            if total > cap {
+                payload["truncated"] = true
+                payload["total_symbols"] = total
+            }
+            return jsonString(payload)
+        } catch {
+            return jsonError("workspace_symbols failed: \(error)")
+        }
+    }
+
+    /// Flatten DocumentSymbol[] (hierarchical) or SymbolInformation[] (flat)
+    /// into 1-indexed entries with a depth marker.
+    private func flattenSymbols(_ symbols: [[String: Any]], depth: Int, into out: inout [[String: Any]]) {
+        for s in symbols {
+            guard let name = s["name"] as? String else { continue }
+            var entry: [String: Any] = ["name": name, "depth": depth]
+            if let kind = s["kind"] as? Int { entry["kind"] = Self.symbolKindName(kind) }
+            // DocumentSymbol: selectionRange points at the identifier; range
+            // spans the whole declaration body.
+            if let sel = (s["selectionRange"] as? [String: Any]) ?? (s["range"] as? [String: Any]),
+               let start = sel["start"] as? [String: Any],
+               let line = start["line"] as? Int {
+                entry["line"] = line + 1
+                if let ch = start["character"] as? Int { entry["column"] = ch + 1 }
+            }
+            if let range = s["range"] as? [String: Any],
+               let end = range["end"] as? [String: Any],
+               let endLine = end["line"] as? Int {
+                entry["end_line"] = endLine + 1
+            }
+            // SymbolInformation (flat legacy form) carries a location instead.
+            if entry["line"] == nil,
+               let loc = s["location"] as? [String: Any],
+               let range = loc["range"] as? [String: Any],
+               let start = range["start"] as? [String: Any],
+               let line = start["line"] as? Int {
+                entry["line"] = line + 1
+                if let ch = start["character"] as? Int { entry["column"] = ch + 1 }
+            }
+            if let container = s["containerName"] as? String, !container.isEmpty {
+                entry["container"] = container
+            }
+            out.append(entry)
+            if let children = s["children"] as? [[String: Any]] {
+                flattenSymbols(children, depth: depth + 1, into: &out)
+            }
+        }
+    }
+
+    /// LSP SymbolKind (1-26) → readable name.
+    private static func symbolKindName(_ kind: Int) -> String {
+        let names = [
+            "file", "module", "namespace", "package", "class", "method",
+            "property", "field", "constructor", "enum", "interface", "function",
+            "variable", "constant", "string", "number", "boolean", "array",
+            "object", "key", "null", "enum_member", "struct", "event",
+            "operator", "type_parameter"
+        ]
+        return (kind >= 1 && kind <= names.count) ? names[kind - 1] : "kind_\(kind)"
+    }
+
     /// Get-or-spawn the client for a path and ensure the current file
     /// contents are open in the server, so symbol queries have a document
     /// to work with.
