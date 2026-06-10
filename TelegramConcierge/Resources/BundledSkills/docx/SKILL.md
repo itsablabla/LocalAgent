@@ -20,8 +20,9 @@ This skill is not a house style. Preserve supplied templates and choose formatti
 3. Choose the authoring path: `python-docx` for precise work, Pandoc for straightforward prose drafts (`pandoc input.md --reference-doc=template.docx -o output.docx`), or template editing when the user supplied a DOCX. Avoid GUI automation; LibreOffice is for conversion/QA, not authoring.
 4. Build real Word structure, not visual fakes.
 5. Inspect the package: `python3 ${CLAUDE_SKILL_DIR}/inspect_docx.py output.docx` (headings, tables, sections, styles in use). Use it on input documents too, before editing them.
-6. Render and look: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.docx --out-dir doc_qa --sheet` converts via LibreOffice, rasterizes every page, and tiles them into one labelled contact-sheet image. Check page rhythm and accidental blanks on the sheet; read full pages where it shows problems. DOCX layout depends on the renderer, so package checks alone are not enough.
-7. Fix objective defects and repeat up to 3 times.
+6. Audit structurally: `python3 ${CLAUDE_SKILL_DIR}/audit_docx.py output.docx` — exact checks (stretched images, table rows that clip, heading-level jumps, placeholder leftovers, tables wider than the page) plus conservative heuristics (fake bold headings, manual list markers, spacing via empty paragraphs). Fix everything exact; judge the heuristics. This needs no renderer, so it is the primary QA when LibreOffice is unavailable.
+7. Render and look when LibreOffice is available: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.docx --out-dir doc_qa --sheet` converts via LibreOffice, rasterizes every page, and tiles them into one labelled contact-sheet image. Check page rhythm and accidental blanks on the sheet; read full pages where it shows problems. Rendered output stays authoritative — a clean audit does not guarantee a clean render.
+8. Fix objective defects and repeat up to 3 times.
 
 Do not overwrite the user's original file. Create a new output file unless explicitly asked otherwise.
 
