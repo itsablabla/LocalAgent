@@ -16,26 +16,27 @@ This skill is deliberately not a design template. Do not force every PDF into th
 1. Identify the document type and audience (classify before designing — see reference.md).
 2. Choose a source format. Default to HTML/CSS for new PDFs.
 3. Build the document with reusable CSS and intentional page geometry.
-4. Render the PDF.
-5. Render the PDF pages to PNGs and inspect them visually.
-6. Fix objective defects and re-render. Repeat up to 3 times.
+4. Render: `python3 ${CLAUDE_SKILL_DIR}/render_pdf.py input.html output.pdf`.
+5. Audit programmatically: `python3 ${CLAUDE_SKILL_DIR}/audit_pdf.py output.pdf --source input.html`.
+6. Inspect visually: `python3 ${CLAUDE_SKILL_DIR}/render_pdf_pages.py output.pdf --out-dir pdf_qa --sheet`.
+7. Fix objective defects and re-render. Repeat up to 3 times.
 
 The file existing is not enough. Text extraction is not enough. A PDF is ready only when the rendered pages look correct.
 
-## Source And Renderer
+## Render
 
-Default path for new PDFs:
+`render_pdf.py` resolves whichever engine is installed — WeasyPrint, else Chromium/Chrome/Edge headless — and reports which one it used. Heed its warnings: Chrome does not support CSS @page margin boxes, so `counter(page)` page numbers and running headers/footers silently vanish; if the document needs page furniture and only Chrome is available, either put the furniture in the body flow or suggest installing WeasyPrint (`python3 -m pip install weasyprint`). Prefer WeasyPrint for documents; prefer Chrome (`--engine chrome`) when the design depends on browser layout behavior such as complex flex/grid or canvas.
 
-```bash
-weasyprint input.html output.pdf
-python3 ${CLAUDE_SKILL_DIR}/render_pdf_pages.py output.pdf --out-dir pdf_qa
-```
-
-The QA helper tries Poppler's `pdftoppm`, then PyMuPDF. If neither is available, inspect the PDF through another visual route and mention the limitation only if it affects confidence.
-
-Use WeasyPrint for most documents: reports, essays, invoices, letters, contracts, tables, headers/footers, page counters, and print CSS. Use headless Chromium (`chromium --headless --disable-gpu --print-to-pdf=output.pdf input.html`) when the design depends heavily on browser layout behavior such as complex flex/grid, canvas output, or interactive-to-static screenshots. Avoid imperative PDF libraries such as reportlab/fpdf for flowing documents — they are fine for precise generated forms or labels, but make ordinary layout harder than HTML/CSS.
+Avoid imperative PDF libraries such as reportlab/fpdf for flowing documents — fine for precise generated forms or labels, harder than HTML/CSS for everything else.
 
 Keep scratch files in a task-specific folder such as `tmp/pdfs/<task-slug>/`. Unless the user asks for internals, deliver the final PDF.
+
+## Audit Before Looking
+
+`audit_pdf.py` catches objective failures cheaply, before any image is read:
+
+- Page count, page size, per-page text density, and near-empty-page flags (accidental blanks show up numerically; covers and dividers are legitimately sparse).
+- With `--source input.html`: a text-completeness check — chunks of source text that never made it into the PDF mean content was silently clipped (the classic `overflow: hidden` failure on fixed-size slide pages, invisible in a dense thumbnail). Clusters of consecutive missing chunks are almost always real clipping; isolated ones may be hyphenation artifacts — verify those visually.
 
 ## Design Judgment
 
@@ -54,7 +55,9 @@ Do not invent facts, citations, logos, signatures, legal terms, tax IDs, payment
 
 ## Visual QA
 
-Inspect every rendered page image. For long documents, at minimum inspect every distinct layout type plus first/last pages and any page with tables, figures, footnotes, or dense content. Check for: clipped/overlapping text, accidental blank pages, stranded headings, separated captions, overflowing tables, distorted images, inconsistent page furniture, and leftover placeholders. The full checklist and the common-fixes table are in reference.md.
+Start with the contact sheet (`render_pdf_pages.py output.pdf --sheet`): one labelled image of every page, enough to judge page rhythm, accidental blanks, density balance, and thumbnail legibility for slide-style PDFs. Then read full-size page images only where the sheet or the audit flagged problems — plus, for long documents, every distinct layout type, first/last pages, and any page with tables, figures, footnotes, or dense content.
+
+Check for: clipped/overlapping text, accidental blank pages, stranded headings, separated captions, overflowing tables, distorted images, inconsistent page furniture, and leftover placeholders. The full checklist and the common-fixes table are in reference.md.
 
 Fix objective defects first. Do not spend iterations on subjective polish while there are still layout errors.
 
