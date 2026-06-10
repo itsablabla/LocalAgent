@@ -20,8 +20,9 @@ This skill is not a single deck style. Follow the user's template, reference, au
 3. Author with `python-pptx`. When the user supplied a template or source deck, inspect it first: `python3 ${CLAUDE_SKILL_DIR}/inspect_pptx.py template.pptx --layouts` lists layouts and placeholders; without the flag it summarizes slides, titles, and shapes. Reuse the template's layouts and styles instead of rebuilding the look. Pandoc is only for quick outline drafts.
 4. Plan the slide sequence and what each slide needs to prove or communicate. Not every deck needs aggressive "claim/proof" titles, but every important slide needs a reason to exist — a slide that is only a topic label plus generic bullets should be improved, merged, or made an intentional agenda/divider.
 5. Build editable native slides. Do not invent metrics, logos, customer marks, product UI, citations, or financial data.
-6. Verify structure (`inspect_pptx.py output.pptx` — slide count, titles, shapes), then render and look: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.pptx --out-dir deck_qa` converts via LibreOffice and rasterizes every slide. Inspect each one — PPTX is not safe until rendered. Check both full-size readability and thumbnail rhythm.
-7. Fix objective defects and repeat up to 3 times.
+6. Audit structurally: `python3 ${CLAUDE_SKILL_DIR}/audit_pptx.py output.pptx` — exact geometry checks (shapes off the slide, stretched images) plus conservative heuristics (likely text overflow, tiny fonts, empty placeholders, overlapping text). Fix everything exact; judge the heuristics. This needs no renderer, so it is the primary QA when LibreOffice is unavailable.
+7. Render and look when LibreOffice is available: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.pptx --out-dir deck_qa --sheet` rasterizes every slide AND tiles them into one labelled contact-sheet image. Judge sequence and thumbnail rhythm on the sheet; read full-size slides where the sheet or audit flagged problems. Rendered output stays authoritative — a clean audit does not guarantee a clean render.
+8. Fix objective defects and repeat up to 3 times.
 
 Do not overwrite source decks. Save a new output file unless the user explicitly asks otherwise.
 

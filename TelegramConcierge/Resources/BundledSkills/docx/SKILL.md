@@ -20,7 +20,7 @@ This skill is not a house style. Preserve supplied templates and choose formatti
 3. Choose the authoring path: `python-docx` for precise work, Pandoc for straightforward prose drafts (`pandoc input.md --reference-doc=template.docx -o output.docx`), or template editing when the user supplied a DOCX. Avoid GUI automation; LibreOffice is for conversion/QA, not authoring.
 4. Build real Word structure, not visual fakes.
 5. Inspect the package: `python3 ${CLAUDE_SKILL_DIR}/inspect_docx.py output.docx` (headings, tables, sections, styles in use). Use it on input documents too, before editing them.
-6. Render and look: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.docx --out-dir doc_qa` converts via LibreOffice and rasterizes every page. Inspect the page images — DOCX layout depends on the renderer, so package checks alone are not enough.
+6. Render and look: `python3 ${CLAUDE_SKILL_DIR}/render_doc_pages.py output.docx --out-dir doc_qa --sheet` converts via LibreOffice, rasterizes every page, and tiles them into one labelled contact-sheet image. Check page rhythm and accidental blanks on the sheet; read full pages where it shows problems. DOCX layout depends on the renderer, so package checks alone are not enough.
 7. Fix objective defects and repeat up to 3 times.
 
 Do not overwrite the user's original file. Create a new output file unless explicitly asked otherwise.
