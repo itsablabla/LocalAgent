@@ -122,3 +122,56 @@ final class DebugTelemetry: ObservableObject {
         }
     }
 }
+
+/// Persistent success/failure counters for the file-editing tools
+/// (apply_patch vs edit_file). Unlike DebugTelemetry's in-memory event stream,
+/// these survive restarts — they exist to answer "does apply_patch earn its
+/// keep" with real numbers over days of use.
+/// Stored at ~/Library/Application Support/LocalAgent/edit_tool_stats.json
+/// as a flat {"apply_patch.success": N, "apply_patch.failure": N, ...} map.
+actor EditToolStats {
+    static let shared = EditToolStats()
+
+    private var counts: [String: Int] = [:]
+    private var loaded = false
+
+    private var fileURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("LocalAgent", isDirectory: true)
+            .appendingPathComponent("edit_tool_stats.json")
+    }
+
+    func record(tool: String, success: Bool) {
+        loadIfNeeded()
+        counts["\(tool).\(success ? "success" : "failure")", default: 0] += 1
+        save()
+    }
+
+    func snapshot() -> [String: Int] {
+        loadIfNeeded()
+        return counts
+    }
+
+    private func loadIfNeeded() {
+        guard !loaded else { return }
+        loaded = true
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
+        counts = decoded
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(counts) else { return }
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    /// Fire-and-forget from any isolation context.
+    nonisolated static func log(tool: String, success: Bool) {
+        Task { await EditToolStats.shared.record(tool: tool, success: success) }
+    }
+}

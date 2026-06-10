@@ -70,6 +70,7 @@ extension ToolExecutor {
         }
 
         let result = await FilesystemTools.shared.editFile(path: path, edits: editPairs, replaceAll: replaceAll)
+        EditToolStats.log(tool: "edit_file", success: result.content.contains("\"success\":true"))
         return result.content
     }
 
@@ -81,6 +82,7 @@ extension ToolExecutor {
             return "{\"error\": \"apply_patch requires 'patch_text'\"}"
         }
         let result = await ApplyPatch.run(patchText: patchText)
+        EditToolStats.log(tool: "apply_patch", success: result.content.contains("\"success\":true"))
         return result.content
     }
 

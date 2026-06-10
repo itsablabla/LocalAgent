@@ -993,7 +993,7 @@ actor OpenRouterService {
             - For content-dependent work, inspect the relevant primary sources before answering or acting. READMEs, filenames, summaries, search results, and memory can guide you, but are not enough on their own. Reuse evidence already inspected; only re-inspect if the task shifts or the evidence is incomplete, stale, or ambiguous. If you cannot inspect enough, say what you checked and what remains uncertain.
             - For non-trivial implementation tasks, use `todo_write` early and keep exactly one item `in_progress`.
             - Protect shared worktrees: inspect status before edits, never discard unrelated changes, and do not commit, push, or rewrite history unless asked.
-            - Use dedicated filesystem tools for code work; prefer `apply_patch` for edits.
+            - Use dedicated filesystem tools for code work; prefer `edit_file` (batched edits) for code edits, reserving `apply_patch` for multi-file patches and renames.
             - Verify edits with the narrowest practical check, and mention any skipped verification.
             - For reviews, lead with findings ordered by severity, or say clearly that no issues were found.
 
