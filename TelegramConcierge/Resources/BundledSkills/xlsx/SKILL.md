@@ -18,7 +18,7 @@ Do not fake spreadsheet verification with screenshots alone. Open the workbook p
 3. Define the workbook schema: sheets, columns, row counts, formulas, formats, validation, charts/tables.
 4. Write typed values, formulas, widths, formats, freeze panes, filters, and sheets with `openpyxl`.
 5. Reopen the saved file and verify structure programmatically (helper below).
-6. If formulas matter, recalculate with Excel/LibreOffice when available or clearly verify formula text/ranges.
+6. Run `verify_xlsx.py check` — formula lint plus, when the `formulas` package is installed, full evaluation of every formula. Fix every error; judge every warning.
 7. If visual layout matters, convert to PDF (`libreoffice --headless --convert-to pdf output.xlsx`) and inspect.
 8. Fix objective defects and repeat up to 3 times.
 
@@ -30,9 +30,17 @@ Do not overwrite the user's original workbook unless explicitly asked.
 python3 ${CLAUDE_SKILL_DIR}/verify_xlsx.py manifest book.xlsx              # sheets, dims, tables, charts, named ranges, hidden sheets
 python3 ${CLAUDE_SKILL_DIR}/verify_xlsx.py inspect book.xlsx --rows 3      # headers + sample rows with types and number formats
 python3 ${CLAUDE_SKILL_DIR}/verify_xlsx.py diff before.xlsx after.xlsx     # cell-by-cell diff of an edit
+python3 ${CLAUDE_SKILL_DIR}/verify_xlsx.py check book.xlsx                 # formula lint + evaluation + data-integrity lint
 ```
 
-For existing-workbook edits: run `manifest` before and after — any sheet, table, chart, image, named-range, or hidden-sheet change must be intentional. Run `diff` to confirm edits touched only the intended cells. For checking recalculated formula values, load with `data_only=True` after a LibreOffice/Excel recalc pass.
+For existing-workbook edits: run `manifest` before and after — any sheet, table, chart, image, named-range, or hidden-sheet change must be intentional. Run `diff` to confirm edits touched only the intended cells.
+
+`check` is the formula safety net — run it on every workbook that contains formulas:
+
+- Errors (always fix): references to nonexistent sheets, `#REF!` in formula text, formulas stored as text that will never calculate.
+- Warnings (judge): aggregation ranges that stop short of adjacent data (`SUM(B2:B9)` while B10 holds data — the classic bug from writing formulas before appending rows), references to empty areas.
+- Evaluation (when the `formulas` package is installed): every formula is actually computed — `error_cells` lists `#REF!`/`#DIV/0!`/`#N/A`/`#NAME?` results and must be empty; sanity-check the computed totals against what the data implies. An `#N/A` from a lookup means the key genuinely is not in the lookup table.
+- Data lint: numbers/dates stored as text, header whitespace, blank rows inside data, merged cells in data regions. Leading-zero IDs are correctly text and not flagged.
 
 ## Existing Workbook Edits — Hard Rules
 
