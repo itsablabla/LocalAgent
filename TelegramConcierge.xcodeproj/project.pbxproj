@@ -14,6 +14,7 @@
 		31B7CF7E140CC51F1318A043 /* FileDescriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F41BFCEF3C81A6A0A64255 /* FileDescriptionService.swift */; };
 		VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */; };
 		PROJINSTR123456789ABCD1 /* ProjectInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */; };
+		GITCHKPT0123456789ABCD1 /* GitCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */; };
 		58BCD35919355360BA19A45B /* ConversationArchiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */; };
 		603CFC4690F84C64979D3048 /* WebOrchestrator+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD50E4C9FE60DE1DEB6071AF /* WebOrchestrator+Helpers.swift */; };
 		68FA8CA6412AA1AFB0B30BBA /* ToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E12F15918DC9CEE64092A28 /* ToolExecutor.swift */; };
@@ -130,6 +131,7 @@
 		F6F41BFCEF3C81A6A0A64255 /* FileDescriptionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileDescriptionService.swift; sourceTree = "<group>"; };
 		VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionPreprocessorCache.swift; sourceTree = "<group>"; };
 		PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProjectInstructions.swift; sourceTree = "<group>"; };
+		GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitCheckpoint.swift; sourceTree = "<group>"; };
 		F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationArchiveService.swift; sourceTree = "<group>"; };
 		FC662244A7AAD92235CE193B /* ToolModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolModels.swift; sourceTree = "<group>"; };
 		FILELDGR012345678901234B /* FilesLedger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilesLedger.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				F6F41BFCEF3C81A6A0A64255 /* FileDescriptionService.swift */,
 				VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */,
 				PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */,
+				GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */,
 				MINDEXP0123456789ABCDEF2 /* MindExportService.swift */,
 				PROJECTZIP0123456789ABCD2 /* ProjectsZipAutoExtractor.swift */,
 				FILETIME012345678901234B /* FileTimeTracker.swift */,
@@ -419,6 +422,7 @@
 				31B7CF7E140CC51F1318A043 /* FileDescriptionService.swift in Sources */,
 				VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */,
 				PROJINSTR123456789ABCD1 /* ProjectInstructions.swift in Sources */,
+				GITCHKPT0123456789ABCD1 /* GitCheckpoint.swift in Sources */,
 				MINDEXP0123456789ABCDEF1 /* MindExportService.swift in Sources */,
 				PROJECTZIP0123456789ABCD1 /* ProjectsZipAutoExtractor.swift in Sources */,
 				FILETIME012345678901234A /* FileTimeTracker.swift in Sources */,

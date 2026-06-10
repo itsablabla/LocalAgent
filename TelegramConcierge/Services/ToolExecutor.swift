@@ -19,6 +19,10 @@ actor ToolExecutor {
     /// can clear entries synchronously; the tracker locks internally.
     nonisolated let projectInstructions = ProjectInstructionsTracker()
 
+    /// Per-executor tracker for pre-edit git checkpoints (same pruning
+    /// contract as projectInstructions).
+    nonisolated let gitCheckpoints = GitCheckpointTracker()
+
     private let webOrchestrator = WebOrchestrator()
     private let archiveService = ConversationArchiveService()
     private var openRouterService: OpenRouterService?
@@ -147,6 +151,13 @@ actor ToolExecutor {
     func execute(_ call: ToolCall) async throws -> ToolResultMessage {
         try Task.checkCancellation()
         return try await withTelemetry(call) {
+            // Git safety net: the first edit in a repo snapshots the working
+            // tree BEFORE the edit lands (git stash create — a dangling
+            // commit; no index/history side effects).
+            let checkpoint = self.gitCheckpoints.checkpointIfNeeded(
+                toolName: call.function.name,
+                argumentsJSON: call.function.arguments
+            )
             var result = try await self.executeBody(call)
             // First touch of a project in this context auto-loads its
             // AGENTS.md/CLAUDE.md into the tool result (rides along like LSP
@@ -163,6 +174,7 @@ actor ToolExecutor {
                 argumentsJSON: call.function.arguments,
                 resultContent: result.content
             )
+            if let checkpoint { result.content += checkpoint }
             if let instructions { result.content += instructions }
             if let verification { result.content += verification }
             return result

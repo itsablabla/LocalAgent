@@ -2975,6 +2975,9 @@ class ConversationManager: ObservableObject {
                         for root in ProjectInstructionsTracker.verificationMarkerRoots(in: result.content) {
                             toolExecutor.projectInstructions.clearVerification(root: root)
                         }
+                        for root in GitCheckpointTracker.markerRoots(in: result.content) {
+                            toolExecutor.gitCheckpoints.clearCheckpoint(root: root)
+                        }
                     }
                 }
                 // Generate the compact log now — before clearing interactions —
