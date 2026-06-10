@@ -28,6 +28,9 @@ final class ProjectInstructionsTracker: @unchecked Sendable {
     static let markerPrefix = "[PROJECT INSTRUCTIONS: "
     static let markerEnd = "[END PROJECT INSTRUCTIONS]"
 
+    static let verificationMarkerPrefix = "[PROJECT VERIFICATION: "
+    static let verificationMarkerEnd = "[END PROJECT VERIFICATION]"
+
     /// Tools whose arguments carry filesystem paths worth scanning.
     private static let pathAwareTools: Set<String> = [
         "read_file", "write_file", "edit_file", "apply_patch",
@@ -38,6 +41,8 @@ final class ProjectInstructionsTracker: @unchecked Sendable {
     /// Instruction-file path → mtime at the moment it was injected into this
     /// executor's context.
     private var loaded: [String: Date] = [:]
+    /// Project roots whose detected verification checks are already in context.
+    private var verifiedRoots = Set<String>()
 
     // MARK: - Injection
 
@@ -106,16 +111,178 @@ final class ProjectInstructionsTracker: @unchecked Sendable {
     /// Scans a tool-result content string for injected instruction markers and
     /// returns the instruction-file paths it carried.
     static func markerPaths(in content: String) -> [String] {
-        guard content.contains(markerPrefix) else { return [] }
+        bracketedPaths(in: content, prefix: markerPrefix)
+    }
+
+    // MARK: - Verification checks
+
+    /// Tools whose success means project code changed on disk.
+    private static let editTools: Set<String> = ["write_file", "edit_file", "apply_patch"]
+
+    /// Returns a payload describing the project's detected build/test/typecheck
+    /// commands the first time a successful code edit lands in that project.
+    /// Detection is manifest-based (Package.swift, package.json, Cargo.toml,
+    /// go.mod, Makefile, *.xcodeproj, …); AGENTS.md remains authoritative when
+    /// it declares different commands.
+    func verificationPayload(toolName: String, argumentsJSON: String, resultContent: String) -> String? {
+        guard Self.editTools.contains(toolName) else { return nil }
+        guard resultContent.contains("\"success\":true") else { return nil }
+        let touched = Self.touchedPaths(toolName: toolName, argumentsJSON: argumentsJSON)
+        guard !touched.isEmpty else { return nil }
+
+        var blocks: [String] = []
+        for path in touched {
+            guard let root = Self.verificationRoot(forTouchedPath: path) else { continue }
+            let rootPath = root.path
+
+            lock.lock()
+            let inserted = verifiedRoots.insert(rootPath).inserted
+            lock.unlock()
+            guard inserted else { continue }
+
+            let checks = Self.detectChecks(inProjectRoot: root)
+            guard !checks.isEmpty else { continue }
+
+            blocks.append(
+                Self.verificationMarkerPrefix + rootPath + "]\n"
+                + "Detected checks for this project. After completing your edits here, run the narrowest applicable one before reporting done (commands declared in the project's AGENTS.md take precedence):\n"
+                + checks.map { "- " + $0 }.joined(separator: "\n")
+                + "\n" + Self.verificationMarkerEnd
+            )
+        }
+
+        guard !blocks.isEmpty else { return nil }
+        return "\n\n" + blocks.joined(separator: "\n\n")
+    }
+
+    /// Pruner callback for verification blocks, mirroring clearLoaded.
+    func clearVerification(root: String) {
+        lock.lock()
+        verifiedRoots.remove(root)
+        lock.unlock()
+    }
+
+    /// Scans a tool-result content string for injected verification markers
+    /// and returns the project roots they carried.
+    static func verificationMarkerRoots(in content: String) -> [String] {
+        bracketedPaths(in: content, prefix: verificationMarkerPrefix)
+    }
+
+    private static func bracketedPaths(in content: String, prefix: String) -> [String] {
+        guard content.contains(prefix) else { return [] }
         var paths: [String] = []
         var searchRange = content.startIndex..<content.endIndex
-        while let prefixRange = content.range(of: markerPrefix, range: searchRange) {
+        while let prefixRange = content.range(of: prefix, range: searchRange) {
             guard let closing = content.range(of: "]", range: prefixRange.upperBound..<content.endIndex) else { break }
             let path = String(content[prefixRange.upperBound..<closing.lowerBound])
             if path.hasPrefix("/") { paths.append(path) }
             searchRange = closing.upperBound..<content.endIndex
         }
         return paths
+    }
+
+    /// Manifest files that mark a directory as a verifiable project root.
+    private static let manifestNames: Set<String> = [
+        "Package.swift", "package.json", "tsconfig.json", "Cargo.toml",
+        "go.mod", "pyproject.toml", "setup.py", "pytest.ini", "tox.ini",
+        "Makefile", "build.gradle", "build.gradle.kts", "pom.xml"
+    ]
+
+    /// Walks up from a touched path to the nearest directory containing a
+    /// recognized build/test manifest. Same boundaries as instructionFile:
+    /// stops after the repo root (.git), never home or filesystem root.
+    static func verificationRoot(forTouchedPath path: String) -> URL? {
+        let fm = FileManager.default
+        let standardized = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
+
+        var isDir: ObjCBool = false
+        let exists = fm.fileExists(atPath: standardized.path, isDirectory: &isDir)
+        var dir = (exists && isDir.boolValue) ? standardized : standardized.deletingLastPathComponent()
+
+        let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.path
+
+        for _ in 0..<64 {
+            let dirPath = dir.path
+            if dirPath == "/" || dirPath == home { break }
+
+            if let entries = try? fm.contentsOfDirectory(atPath: dirPath) {
+                if entries.contains(where: { Self.manifestNames.contains($0) || $0.hasSuffix(".xcodeproj") }) {
+                    return dir
+                }
+                // Repo root with no manifest anywhere below — stop the walk.
+                if entries.contains(".git") { break }
+            }
+
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dirPath { break }
+            dir = parent
+        }
+        return nil
+    }
+
+    /// Builds "kind: command" lines from the manifests present at the root.
+    /// Ordered narrowest-first (typecheck → test → build) where possible.
+    static func detectChecks(inProjectRoot root: URL) -> [String] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(atPath: root.path) else { return [] }
+        let set = Set(entries)
+        var checks: [String] = []
+
+        if set.contains("Package.swift") {
+            checks.append("build: swift build")
+            checks.append("test: swift test")
+        }
+        if let xcodeproj = entries.first(where: { $0.hasSuffix(".xcodeproj") }), !set.contains("Package.swift") {
+            let name = (xcodeproj as NSString).deletingPathExtension
+            checks.append("build: xcodebuild -scheme \(name) -configuration Debug build (confirm scheme with `xcodebuild -list`)")
+        }
+        if set.contains("package.json"),
+           let data = try? Data(contentsOf: root.appendingPathComponent("package.json")),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let runner = set.contains("bun.lockb") || set.contains("bun.lock") ? "bun run"
+                : set.contains("pnpm-lock.yaml") ? "pnpm run"
+                : set.contains("yarn.lock") ? "yarn"
+                : "npm run"
+            let scripts = (obj["scripts"] as? [String: Any]) ?? [:]
+            for key in ["typecheck", "test", "build", "lint"] where scripts[key] != nil {
+                checks.append("\(key): \(runner) \(key)")
+            }
+        }
+        if set.contains("tsconfig.json") {
+            checks.append("typecheck: npx tsc --noEmit")
+        }
+        if set.contains("Cargo.toml") {
+            checks.append("typecheck: cargo check")
+            checks.append("test: cargo test")
+        }
+        if set.contains("go.mod") {
+            checks.append("build: go build ./...")
+            checks.append("test: go test ./...")
+        }
+        if set.contains("pytest.ini") || set.contains("tox.ini")
+            || ((set.contains("pyproject.toml") || set.contains("setup.py")) && set.contains("tests")) {
+            checks.append("test: python3 -m pytest")
+        }
+        if set.contains("Makefile"),
+           let makefile = try? String(contentsOf: root.appendingPathComponent("Makefile"), encoding: .utf8) {
+            let lines = makefile.split(separator: "\n", omittingEmptySubsequences: true)
+            for target in ["test", "build", "check", "lint"] {
+                if lines.contains(where: { $0.hasPrefix("\(target):") }) {
+                    checks.append("\(target): make \(target)")
+                }
+            }
+        }
+        if set.contains("build.gradle") || set.contains("build.gradle.kts") {
+            let gradle = set.contains("gradlew") ? "./gradlew" : "gradle"
+            checks.append("build: \(gradle) build")
+            checks.append("test: \(gradle) test")
+        }
+        if set.contains("pom.xml") {
+            checks.append("test: mvn -q test")
+        }
+
+        if checks.count > 8 { checks = Array(checks.prefix(8)) }
+        return checks
     }
 
     // MARK: - Discovery

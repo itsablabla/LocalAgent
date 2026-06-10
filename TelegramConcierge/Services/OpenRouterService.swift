@@ -995,7 +995,7 @@ actor OpenRouterService {
             - Protect shared worktrees: inspect status before edits, never discard unrelated changes, and do not commit, push, or rewrite history unless asked.
             - Use dedicated filesystem tools for code work; prefer `edit_file` (batched edits) for code edits, reserving `apply_patch` for multi-file patches and renames.
             - Project instruction files (AGENTS.md/CLAUDE.md) are auto-appended to a tool result the first time you touch a project; follow them for all work in that project. When you learn a durable, non-obvious project fact the hard way (build/test commands, conventions, gotchas), propose adding it to the project's AGENTS.md.
-            - Verify edits with the narrowest practical check, and mention any skipped verification.
+            - A code change is not done until verified. After finishing your edits, run the project's declared check — from its AGENTS.md or the auto-injected [PROJECT VERIFICATION] block (typecheck, build, or focused test; narrowest that covers the change) — and report the result. If you genuinely cannot verify, say exactly what you skipped.
             - For reviews, lead with findings ordered by severity, or say clearly that no issues were found.
 
             Tool-use guidance:

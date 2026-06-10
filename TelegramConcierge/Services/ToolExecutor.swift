@@ -150,13 +150,21 @@ actor ToolExecutor {
             var result = try await self.executeBody(call)
             // First touch of a project in this context auto-loads its
             // AGENTS.md/CLAUDE.md into the tool result (rides along like LSP
-            // diagnostics; deduped per instruction file until pruned).
-            if let instructions = self.projectInstructions.payload(
+            // diagnostics; deduped per instruction file until pruned). The
+            // first successful code edit in a project additionally injects
+            // its detected build/test checks. Both computed from the original
+            // result content, before anything is appended.
+            let instructions = self.projectInstructions.payload(
                 toolName: call.function.name,
                 argumentsJSON: call.function.arguments
-            ) {
-                result.content += instructions
-            }
+            )
+            let verification = self.projectInstructions.verificationPayload(
+                toolName: call.function.name,
+                argumentsJSON: call.function.arguments,
+                resultContent: result.content
+            )
+            if let instructions { result.content += instructions }
+            if let verification { result.content += verification }
             return result
         }
     }

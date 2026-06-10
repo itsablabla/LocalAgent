@@ -2972,6 +2972,9 @@ class ConversationManager: ObservableObject {
                         for path in ProjectInstructionsTracker.markerPaths(in: result.content) {
                             toolExecutor.projectInstructions.clearLoaded(instructionFilePath: path)
                         }
+                        for root in ProjectInstructionsTracker.verificationMarkerRoots(in: result.content) {
+                            toolExecutor.projectInstructions.clearVerification(root: root)
+                        }
                     }
                 }
                 // Generate the compact log now — before clearing interactions —
