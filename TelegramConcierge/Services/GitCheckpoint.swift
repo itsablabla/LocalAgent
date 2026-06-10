@@ -145,7 +145,11 @@ final class GitCheckpointTracker: @unchecked Sendable {
 
     /// Minimal synchronous git runner (trusted, fixed argument set — not
     /// routed through BashTools to avoid shell/profile/secret machinery).
-    private static func runGit(_ args: [String], in workdir: String) -> String? {
+    /// Hard timeout so a hung git (network mount, lock contention) can never
+    /// stall the executor: on expiry the process is terminated and the
+    /// checkpoint is silently skipped. stdin is nulled so git can never sit
+    /// waiting for input.
+    static func runGit(_ args: [String], in workdir: String, timeoutSeconds: Double = 15) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = args
@@ -153,15 +157,36 @@ final class GitCheckpointTracker: @unchecked Sendable {
         let out = Pipe()
         process.standardOutput = out
         process.standardError = Pipe()
+        process.standardInput = FileHandle.nullDevice
+
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         do {
             try process.run()
         } catch {
             return nil
         }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+
+        // Drain stdout on a background queue so a full pipe buffer can't
+        // deadlock the child while we wait.
+        let outputBox = NSMutableData()
+        let readQueue = DispatchQueue(label: "localagent.git-checkpoint.read")
+        readQueue.async {
+            outputBox.append(out.fileHandleForReading.readDataToEndOfFile())
+        }
+
+        if finished.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            process.terminate()
+            if finished.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = finished.wait(timeout: .now() + 2)
+            }
+            return nil
+        }
+        // Barrier: ensure the reader finished before touching the data.
+        readQueue.sync {}
         guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(data: outputBox as Data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Ledger
