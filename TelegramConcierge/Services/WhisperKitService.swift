@@ -162,13 +162,13 @@ final class WhisperKitService: ObservableObject {
     }
     
     // MARK: - Transcription
-    
+
     func transcribeAudioFile(url: URL) async -> String? {
         guard let pipe = whisperKit else {
             print("[WhisperKitService] WhisperKit not available")
             return nil
         }
-        
+
         do {
             let results = try await pipe.transcribe(audioPath: url.path)
             if let firstResult = results.first {
@@ -177,8 +177,52 @@ final class WhisperKitService: ObservableObject {
         } catch {
             print("[WhisperKitService] Transcription error:", error.localizedDescription)
         }
-        
+
         return nil
+    }
+
+    /// A speech segment with absolute timestamps, for SRT generation.
+    struct TimedSegment {
+        let start: Double
+        let end: Double
+        let text: String
+    }
+
+    /// Transcribe and return timed segments (used by the transcribe_media
+    /// tool for SRT output). Strips Whisper special tokens such as
+    /// `<|startoftranscript|>` from segment text.
+    func transcribeAudioFileSegments(url: URL, language: String? = nil) async -> [TimedSegment]? {
+        guard let pipe = whisperKit else {
+            print("[WhisperKitService] WhisperKit not available")
+            return nil
+        }
+
+        do {
+            var options = DecodingOptions()
+            options.task = .transcribe
+            if let language, !language.isEmpty {
+                options.language = language
+            }
+            let results = try await pipe.transcribe(audioPath: url.path, decodeOptions: options)
+            var segments: [TimedSegment] = []
+            for result in results {
+                for segment in result.segments {
+                    let cleaned = segment.text
+                        .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !cleaned.isEmpty else { continue }
+                    segments.append(TimedSegment(
+                        start: Double(segment.start),
+                        end: Double(segment.end),
+                        text: cleaned
+                    ))
+                }
+            }
+            return segments
+        } catch {
+            print("[WhisperKitService] Segment transcription error:", error.localizedDescription)
+            return nil
+        }
     }
     
     // MARK: - Model Deletion
@@ -212,7 +256,51 @@ actor OpenAITranscriptionService {
         let error: APIError
     }
 
-    func transcribeAudioFile(url: URL, apiKey: String) async -> String? {
+    func transcribeAudioFile(url: URL, apiKey: String, language: String? = nil) async -> String? {
+        guard let data = await performRequest(
+            url: url,
+            apiKey: apiKey,
+            model: "gpt-4o-transcribe",
+            responseFormat: nil,
+            language: language
+        ) else { return nil }
+
+        guard let decoded = try? JSONDecoder().decode(TranscriptionResponse.self, from: data) else {
+            print("[OpenAITranscriptionService] Failed to decode transcription response")
+            return nil
+        }
+        let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// Transcribe to SRT subtitles. Uses whisper-1 because gpt-4o-transcribe
+    /// does not support timestamped response formats.
+    func transcribeAudioFileSRT(url: URL, apiKey: String, language: String? = nil) async -> String? {
+        guard let data = await performRequest(
+            url: url,
+            apiKey: apiKey,
+            model: "whisper-1",
+            responseFormat: "srt",
+            language: language
+        ) else { return nil }
+
+        let srt = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let srt, !srt.isEmpty else {
+            print("[OpenAITranscriptionService] Empty SRT response")
+            return nil
+        }
+        return srt
+    }
+
+    /// Shared multipart upload to the OpenAI transcriptions endpoint.
+    /// Returns the raw response body on HTTP 200, nil otherwise.
+    private func performRequest(
+        url: URL,
+        apiKey: String,
+        model: String,
+        responseFormat: String?,
+        language: String?
+    ) async -> Data? {
         let trimmedApiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedApiKey.isEmpty else {
             print("[OpenAITranscriptionService] Missing API key")
@@ -230,14 +318,24 @@ actor OpenAITranscriptionService {
 
             var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
-            request.timeoutInterval = 120
+            request.timeoutInterval = 300
             request.setValue("Bearer \(trimmedApiKey)", forHTTPHeaderField: "Authorization")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
             var body = Data()
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-            body.append("gpt-4o-transcribe\r\n".data(using: .utf8)!)
+            func appendField(name: String, value: String) {
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+                body.append("\(value)\r\n".data(using: .utf8)!)
+            }
+
+            appendField(name: "model", value: model)
+            if let responseFormat {
+                appendField(name: "response_format", value: responseFormat)
+            }
+            if let language, !language.isEmpty {
+                appendField(name: "language", value: language)
+            }
 
             let filename = url.lastPathComponent.isEmpty ? "voice.ogg" : url.lastPathComponent
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -266,9 +364,7 @@ actor OpenAITranscriptionService {
                 return nil
             }
 
-            let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
-            let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : text
+            return data
         } catch {
             print("[OpenAITranscriptionService] Transcription error: \(error.localizedDescription)")
             return nil

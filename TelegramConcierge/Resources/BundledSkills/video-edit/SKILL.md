@@ -18,10 +18,35 @@ If `ffmpeg` or `ffprobe` is missing, tell the user what is missing and stop. Do 
 3. Decide how audio should be handled: keep, remove, replace, mix, or retime.
 4. Run the ffmpeg command into a new output file.
 5. Verify metadata by probing the output.
-6. Verify visually: `python3 ${CLAUDE_SKILL_DIR}/probe_video.py output.mp4 --frames 6 --out-dir qa` extracts frames spread across the duration — inspect them. Sample extra frames around edit points.
-7. Fix objective defects and repeat up to 3 times.
+6. Verify visually: `probe_video.py output.mp4 --frames 6 --out-dir qa` extracts frames spread across the duration — inspect them. Sample extra frames around edit points.
+7. If the edit touched audio, verify the audio too (below) — never ship an audio change unchecked.
+8. Fix objective defects and repeat up to 3 times.
 
-Metadata proves the file parses. Visual frames prove the edit looks right. Use both. When the task changes audio, also confirm stream presence, duration, and that the chosen audio mapping is intentional.
+Metadata proves the file parses. Visual frames prove the edit looks right. Use both.
+
+## Locating Events And Cut Points
+
+Do not pull dozens of individual frames to find a moment. Cheapest first:
+
+- `probe_video.py input.mp4 --sheet` renders ONE contact-sheet image (default 6x5 timestamped thumbnails covering the whole file). Inspect it, narrow to a window, then confirm with one or two full frames via `--at <seconds>`. Use `--sheet 8x6` for longer videos.
+- `--scenes` returns hard-cut timestamps numerically (scene-change detection, threshold 0.4; lower catches softer cuts). Trim on those instead of eyeballing.
+- `--silence` returns silence intervals — speech boundaries, dead air to cut, where to place a voiceover. Tune with `--silence-noise -40dB --silence-duration 1.0`.
+
+All modes combine in one call and emit a single JSON report.
+
+## Audio QA
+
+You cannot listen, but you can still verify audio rigorously:
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/probe_video.py output.mp4 --audio --out-dir qa
+```
+
+This returns mean/peak volume and EBU R128 integrated loudness, plus a waveform PNG (add `--spectrogram` for a frequency view). Inspect the waveform image: a mute shows as a flat gap, a fade as a ramp, music-under-speech as a visible level difference. Cross-check numbers — e.g. after mixing music at 0.25, integrated loudness should be close to the original speech-only loudness; if it jumped several LU, the mix is wrong. Compare input vs output reports when retiming or replacing audio.
+
+## Subtitles And Transcripts
+
+The `transcribe_media` tool (separate from this skill's scripts) transcribes any audio/video file using the provider configured in Settings, and with `format='srt'` writes a timestamped .srt next to the input. Typical flow: `transcribe_media {path, format: 'srt'}` → review/correct the SRT text → burn it in or attach it as a soft track (see recipes.md). Use the `language` parameter when you know the spoken language. For plain transcripts (meeting notes, quote extraction), use `format='text'`.
 
 ## Stream Copy Or Re-Encode
 

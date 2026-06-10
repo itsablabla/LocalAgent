@@ -1,0 +1,59 @@
+{
+  "" : {
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/whisperkit-cli-primary.dia",
+    "emit-module-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/whisperkit-cli-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/whisperkit-cli-primary-emit-module.dia",
+    "pch" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/whisperkit-cli-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/whisperkit-cli-primary.swiftdeps"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/Sources/WhisperKitCLI/CLIUtils.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.dia",
+    "index-unit-output-path" : "/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/CLIUtils~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/Sources/WhisperKitCLI/TranscribeCLI.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.dia",
+    "index-unit-output-path" : "/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLI~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/Sources/WhisperKitCLI/TranscribeCLIArguments.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.dia",
+    "index-unit-output-path" : "/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIArguments~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/Sources/WhisperKitCLI/TranscribeCLIUtils.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.dia",
+    "index-unit-output-path" : "/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/TranscribeCLIUtils~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/Sources/WhisperKitCLI/WhisperKitCLI.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.dia",
+    "index-unit-output-path" : "/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/whisperkit/build/whisperkit.build/Debug/whisperkit-cli.build/Objects-normal/arm64/WhisperKitCLI~partial.swiftmodule"
+  }
+}

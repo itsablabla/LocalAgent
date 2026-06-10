@@ -235,6 +235,8 @@ actor ToolExecutor {
             return await executeAgentToolResult(call)
         case "inspect_media":
             return await executeInspectMedia(call)
+        case "transcribe_media":
+            return await executeTranscribeMedia(call)
         default:
             break
         }
@@ -481,6 +483,219 @@ actor ToolExecutor {
         let mimeType: String
         let pageRange: String?
         let totalPages: Int?
+    }
+
+    // MARK: - Transcribe Media
+
+    /// Extensions both WhisperKit (AVFoundation) and the OpenAI endpoint
+    /// accept directly. Anything else (video containers, exotic codecs) is
+    /// routed through an ffmpeg audio-extraction pass first.
+    private static let directAudioExtensions: Set<String> = ["wav", "mp3", "m4a", "ogg", "oga", "flac", "aac", "aiff", "aif"]
+
+    private func executeTranscribeMedia(_ call: ToolCall) async -> ToolResultMessage {
+        func fail(_ message: String) -> ToolResultMessage {
+            ToolResultMessage(toolCallId: call.id, content: jsonObjectString(["error": message]))
+        }
+
+        guard let args = parseJSONArguments(call.function.arguments) else {
+            return fail("Failed to parse transcribe_media arguments")
+        }
+        guard let rawPath = firstString(in: args, keys: ["path", "file", "filename"]) else {
+            return fail("transcribe_media requires 'path'")
+        }
+        let format = (firstString(in: args, keys: ["format"]) ?? "text").lowercased()
+        guard format == "text" || format == "srt" else {
+            return fail("Unsupported format '\(format)'. Use 'text' or 'srt'.")
+        }
+        let language = firstString(in: args, keys: ["language"])
+
+        let inputURL = URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath).standardized
+        guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            return fail("File not found: \(inputURL.path)")
+        }
+
+        let provider = VoiceTranscriptionProvider.fromStoredValue(
+            KeychainHelper.load(key: KeychainHelper.voiceTranscriptionProviderKey)
+        )
+
+        // Prepare the audio: pass plain audio files through, extract the
+        // audio track from everything else.
+        var workURL = inputURL
+        var tempAudioURL: URL?
+        defer { if let tempAudioURL { try? FileManager.default.removeItem(at: tempAudioURL) } }
+
+        if !Self.directAudioExtensions.contains(inputURL.pathExtension.lowercased()) {
+            guard let ffmpeg = Self.locateTranscodeExecutable("ffmpeg") else {
+                return fail("'\(inputURL.lastPathComponent)' is not a plain audio file and ffmpeg is not installed, so the audio track cannot be extracted. Install ffmpeg (brew install ffmpeg) or provide an audio file.")
+            }
+            // 16 kHz mono is what Whisper consumes; AAC/m4a keeps OpenAI uploads small.
+            let ext = provider == .openAI ? "m4a" : "wav"
+            let temp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("transcribe-\(UUID().uuidString).\(ext)")
+            var extractArgs = ["-y", "-v", "error", "-i", inputURL.path, "-vn", "-ac", "1", "-ar", "16000"]
+            if provider == .openAI {
+                extractArgs += ["-c:a", "aac", "-b:a", "64k"]
+            }
+            extractArgs.append(temp.path)
+            let extraction = await Self.runTranscodeProcess(executable: ffmpeg, args: extractArgs, timeoutSeconds: 600)
+            guard extraction.status == 0, FileManager.default.fileExists(atPath: temp.path) else {
+                let detail = extraction.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                return fail("ffmpeg could not extract an audio track from \(inputURL.lastPathComponent)\(detail.isEmpty ? "" : ": \(detail.prefix(300))"). Does the file contain audio?")
+            }
+            workURL = temp
+            tempAudioURL = temp
+        }
+
+        switch provider {
+        case .openAI:
+            let apiKey = (KeychainHelper.load(key: KeychainHelper.openAITranscriptionApiKeyKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !apiKey.isEmpty else {
+                return fail("OpenAI transcription is selected in Settings but no API key is configured. Add it in Settings > Voice Transcription, or switch to the local provider.")
+            }
+            if let size = try? FileManager.default.attributesOfItem(atPath: workURL.path)[.size] as? Int,
+               size > 25 * 1024 * 1024 {
+                return fail("Audio is \(size / (1024 * 1024)) MB — above OpenAI's 25 MB upload limit. Trim or split the media first (see the video-edit skill).")
+            }
+
+            if format == "text" {
+                guard let text = await OpenAITranscriptionService.shared.transcribeAudioFile(url: workURL, apiKey: apiKey, language: language) else {
+                    return fail("OpenAI transcription failed. Check the API key and that the file contains speech.")
+                }
+                return ToolResultMessage(toolCallId: call.id, content: jsonObjectString([
+                    "provider": "openai/gpt-4o-transcribe",
+                    "source": inputURL.path,
+                    "transcript": text
+                ]))
+            } else {
+                guard let srt = await OpenAITranscriptionService.shared.transcribeAudioFileSRT(url: workURL, apiKey: apiKey, language: language) else {
+                    return fail("OpenAI SRT transcription failed. Check the API key and that the file contains speech.")
+                }
+                return writeSRTResult(call: call, srt: srt, args: args, inputURL: inputURL, provider: "openai/whisper-1")
+            }
+
+        case .local:
+            var ready = await MainActor.run { WhisperKitService.shared.isModelReady }
+            if !ready {
+                await WhisperKitService.shared.checkModelStatus()
+                ready = await MainActor.run { WhisperKitService.shared.isModelReady }
+            }
+            guard ready else {
+                let status = await MainActor.run { WhisperKitService.shared.statusMessage }
+                return fail("Local Whisper model is not ready (\(status)). Download it in Settings > Voice Transcription, or switch the provider to OpenAI.")
+            }
+
+            guard let segments = await WhisperKitService.shared.transcribeAudioFileSegments(url: workURL, language: language),
+                  !segments.isEmpty else {
+                return fail("Local transcription produced no speech segments. Does the audio contain speech?")
+            }
+
+            if format == "text" {
+                let text = segments.map(\.text).joined(separator: " ")
+                return ToolResultMessage(toolCallId: call.id, content: jsonObjectString([
+                    "provider": "local/whisperkit",
+                    "source": inputURL.path,
+                    "transcript": text
+                ]))
+            } else {
+                let srt = Self.buildSRT(from: segments)
+                return writeSRTResult(call: call, srt: srt, args: args, inputURL: inputURL, provider: "local/whisperkit")
+            }
+        }
+    }
+
+    /// Write SRT content to disk and build the tool result payload.
+    private func writeSRTResult(call: ToolCall, srt: String, args: [String: Any], inputURL: URL, provider: String) -> ToolResultMessage {
+        let outputURL: URL
+        if let custom = firstString(in: args, keys: ["output_path"]) {
+            outputURL = URL(fileURLWithPath: (custom as NSString).expandingTildeInPath).standardized
+        } else {
+            outputURL = inputURL.deletingPathExtension().appendingPathExtension("srt")
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try srt.write(to: outputURL, atomically: true, encoding: .utf8)
+        } catch {
+            return ToolResultMessage(toolCallId: call.id, content: jsonObjectString([
+                "error": "Transcription succeeded but writing the SRT failed: \(error.localizedDescription)",
+                "srt_preview": String(srt.prefix(1000))
+            ]))
+        }
+
+        let cueCount = srt.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        return ToolResultMessage(toolCallId: call.id, content: jsonObjectString([
+            "provider": provider,
+            "source": inputURL.path,
+            "srt_path": outputURL.path,
+            "cues": cueCount,
+            "preview": String(srt.prefix(800))
+        ]))
+    }
+
+    private static func buildSRT(from segments: [WhisperKitService.TimedSegment]) -> String {
+        func timestamp(_ seconds: Double) -> String {
+            let clamped = max(seconds, 0)
+            let h = Int(clamped) / 3600
+            let m = (Int(clamped) % 3600) / 60
+            let s = Int(clamped) % 60
+            let ms = Int((clamped - clamped.rounded(.down)) * 1000)
+            return String(format: "%02d:%02d:%02d,%03d", h, m, s, ms)
+        }
+        var cues: [String] = []
+        for (index, segment) in segments.enumerated() {
+            // Guarantee a visible, non-zero-length cue even if timestamps degenerate.
+            let end = segment.end > segment.start ? segment.end : segment.start + 0.5
+            cues.append("\(index + 1)\n\(timestamp(segment.start)) --> \(timestamp(end))\n\(segment.text)")
+        }
+        return cues.joined(separator: "\n\n") + "\n"
+    }
+
+    private static func locateTranscodeExecutable(_ name: String) -> String? {
+        for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            let path = "\(dir)/\(name)"
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+        return nil
+    }
+
+    private static func runTranscodeProcess(executable: String, args: [String], timeoutSeconds: Double) async -> (stdout: String, stderr: String, status: Int32) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = args
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: ("", "failed to launch \(executable): \(error.localizedDescription)", -1))
+                    return
+                }
+
+                let deadline = Date().addingTimeInterval(timeoutSeconds)
+                while process.isRunning && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+                if process.isRunning {
+                    process.terminate()
+                    continuation.resume(returning: ("", "timed out after \(Int(timeoutSeconds))s", -1))
+                    return
+                }
+
+                let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                continuation.resume(returning: (stdout, stderr, process.terminationStatus))
+            }
+        }
     }
 
     private func parseJSONArguments(_ json: String) -> [String: Any]? {

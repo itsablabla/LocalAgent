@@ -204,6 +204,8 @@ ffmpeg -i input.mp4 -filter_complex \
 
 Show only between 3 and 6 seconds by adding `:enable='between(t,3,6)'`.
 
+Generate subtitles from speech: use the `transcribe_media` tool with `format='srt'` (it follows the transcription provider configured in Settings and writes `input.srt` next to the file). Review the SRT for transcription errors before burning it in.
+
 Burn subtitles into pixels:
 
 ```bash

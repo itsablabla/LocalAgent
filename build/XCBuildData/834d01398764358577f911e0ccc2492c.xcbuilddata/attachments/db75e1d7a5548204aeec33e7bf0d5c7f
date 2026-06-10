@@ -1,0 +1,51 @@
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/BashCompletionsGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/CompletionsGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/FishCompletionsGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Completions/ZshCompletionsGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/Argument.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/ArgumentDiscussion.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/ArgumentHelp.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/ArgumentVisibility.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/CompletionKind.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/Errors.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/Flag.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/NameSpecification.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/Option.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/OptionGroup.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Properties/ParentCommand.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/AsyncParsableCommand.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/CommandConfiguration.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/CommandGroup.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/EnumerableFlag.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/ExpressibleByArgument.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/ParsableArguments.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsable\ Types/ParsableCommand.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentDecoder.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentDefinition.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ArgumentSet.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/CommandParser.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/InputKey.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/InputOrigin.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/Name.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/Parsed.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ParsedValues.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/ParserError.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Parsing/SplitArguments.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/DumpHelpGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/HelpCommand.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/HelpGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/MessageInfo.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Usage/UsageGenerator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/CollectionExtensions.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Foundation.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Mutex.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Platform.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/SequenceExtensions.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/StringExtensions.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/SwiftExtensions.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Utilities/Tree.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/CodingKeyValidator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/NonsenseFlagsValidator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/ParsableArgumentsValidation.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/PositionalArgumentsValidator.swift
+/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-argument-parser/Sources/ArgumentParser/Validators/UniqueNamesValidator.swift

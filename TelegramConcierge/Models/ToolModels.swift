@@ -792,6 +792,22 @@ enum AvailableTools {
         )
     )
 
+    static let transcribeMedia = ToolDefinition(
+        function: FunctionDefinition(
+            name: "transcribe_media",
+            description: "Transcribe speech from an audio or video file on disk, using the transcription provider selected in Settings > Voice Transcription (local Whisper or OpenAI). Video files and uncommon audio formats have their audio track extracted automatically via ffmpeg. Use format='text' for a plain transcript (default). Use format='srt' to get timestamped subtitles — the .srt file is written next to the input (or to output_path) and the result includes a preview; pair it with the video-edit skill to burn subtitles in or attach them as a soft track. Note: with the OpenAI provider, SRT uses whisper-1 (gpt-4o-transcribe does not return timestamps); plain text uses gpt-4o-transcribe.",
+            parameters: FunctionParameters(
+                properties: [
+                    "path": ParameterProperty(type: "string", description: "Absolute path to the audio or video file."),
+                    "format": ParameterProperty(type: "string", description: "Output format: 'text' (plain transcript, default) or 'srt' (timestamped subtitles written to a file).", enumValues: ["text", "srt"]),
+                    "language": ParameterProperty(type: "string", description: "Optional ISO-639-1 language hint (e.g. 'it', 'en'). Omit for auto-detection."),
+                    "output_path": ParameterProperty(type: "string", description: "For format='srt' only. Absolute path for the .srt file. Defaults to the input path with an .srt extension.")
+                ],
+                required: ["path"]
+            )
+        )
+    )
+
     static let writeFile = ToolDefinition(
         function: FunctionDefinition(
             name: "write_file",
@@ -1224,7 +1240,7 @@ enum AvailableTools {
         let textOnlyTools: [ToolDefinition] = KeychainHelper.load(key: KeychainHelper.textOnlyModelEnabledKey) == "true"
             ? [inspectMedia]
             : []
-        return filesystemTools + textOnlyTools + [manageReminders, viewConversationChunk, generateImage, sendDocumentToChat, shortcuts] + subagentTools + [skill]
+        return filesystemTools + textOnlyTools + [manageReminders, viewConversationChunk, generateImage, transcribeMedia, sendDocumentToChat, shortcuts] + subagentTools + [skill]
     }
 
     /// All available tools. `includeWebSearch` toggles whether the four web tools

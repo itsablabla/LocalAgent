@@ -1,0 +1,149 @@
+{
+  "" : {
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Jinja-primary.dia",
+    "emit-module-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Jinja-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Jinja-primary-emit-module.dia",
+    "pch" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Jinja-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Jinja-primary.swiftdeps"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/AST.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/AST~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Error.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Error~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Filters.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Filters~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Globals.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Globals~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Interpreter.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Interpreter~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Lexer.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Lexer~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Macro.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Macro~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Parser.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Parser~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/PropertyMembers.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/PropertyMembers~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Template.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Template~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Tests.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Tests~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Token.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Token~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Utilities.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Utilities~partial.swiftmodule"
+  },
+  "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/Sources/Jinja/Value.swift" : {
+    "const-values" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.swiftconstvalues",
+    "dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.d",
+    "diagnostics" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.dia",
+    "index-unit-output-path" : "/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.o",
+    "llvm-bc" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.bc",
+    "object" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.o",
+    "swift-dependencies" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value.swiftdeps",
+    "swiftmodule" : "/Users/alice/Library/Developer/Xcode/DerivedData/TelegramConcierge-cnthnbpytcjmreaydzndpfdqrdls/SourcePackages/checkouts/swift-jinja/build/Jinja.build/Debug/Jinja.build/Objects-normal/x86_64/Value~partial.swiftmodule"
+  }
+}
