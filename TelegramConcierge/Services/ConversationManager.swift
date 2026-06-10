@@ -40,6 +40,7 @@ class ConversationManager: ObservableObject {
     private var pendingReferencedDocuments: [(fileName: String, fileSize: Int)] = []
     private var pendingForwardContext: String?
     private var pendingReplyContext: String?
+    private var pendingAttachmentNotes: [String] = []
     private let toolRunLogPrefix = "[TOOL RUN LOG - compact]"
     private let maxRetainedToolRunLogs = 5
     private let maxAssistantMessageChars = 4000
@@ -466,7 +467,41 @@ class ConversationManager: ObservableObject {
     }
     
     // MARK: - Message Processing
-    
+
+    /// Telegram's Bot API refuses getFile downloads above 20 MB; larger files never reach the bot.
+    private static let telegramBotDownloadLimitBytes = 20 * 1024 * 1024
+
+    private func formatMegabytes(_ bytes: Int) -> String {
+        String(format: "%.1f MB", Double(bytes) / 1_048_576)
+    }
+
+    /// Record an attachment the agent will never see on disk, so the next turn knows it existed.
+    /// For attachments on the triggering message (not referenced ones), also notify the user
+    /// immediately on Telegram — a captionless oversized file would otherwise fail in silence.
+    private func noteUnavailableAttachment(name: String, detail: String, notifyUser: String? = nil) async {
+        let note = "[Attachment '\(name)' could not be retrieved: \(detail) The file is NOT available on disk.]"
+        pendingAttachmentNotes.append(note)
+        print("[ConversationManager] \(note)")
+        if let notice = notifyUser, let chatId = pairedChatId {
+            try? await telegramService.sendMessage(chatId: chatId, text: notice)
+        }
+    }
+
+    private func noteOversizedAttachment(name: String, sizeBytes: Int, referenced: Bool) async {
+        let size = formatMegabytes(sizeBytes)
+        let detail = "it is \(size), and Telegram bots can only download files up to 20 MB. Ask the user to provide it another way (a shared link, a path on this machine, or a split archive)."
+        let notice = referenced ? nil :
+            "⚠️ '\(name)' is \(size) — Telegram only lets bots download files up to 20 MB, so it never reached me. Send a download link, a path on this machine, or a split archive instead."
+        await noteUnavailableAttachment(name: name, detail: detail, notifyUser: notice)
+    }
+
+    private func noteFailedAttachmentDownload(name: String, error: Error, referenced: Bool) async {
+        let detail = "the download failed (\(error.localizedDescription))."
+        let notice = referenced ? nil :
+            "⚠️ I couldn't download '\(name)' from Telegram: \(error.localizedDescription)"
+        await noteUnavailableAttachment(name: name, detail: detail, notifyUser: notice)
+    }
+
     private func processUpdate(_ update: TelegramUpdate) async {
         // Clear any previous error when starting to process a new message
         error = nil
@@ -577,53 +612,64 @@ class ConversationManager: ObservableObject {
                     pendingReferencedImages.append((fileName: fileName, fileSize: imageData.count))
                     print("[ConversationManager] Buffered referenced image: \(fileName) (\(imageData.count) bytes)")
                 } catch {
-                    print("[ConversationManager] Failed to download referenced image: \(error)")
+                    await noteFailedAttachmentDownload(name: "referenced photo", error: error, referenced: true)
                 }
             }
             
             if let document = replyToMsg.document {
-                statusMessage = "Downloading referenced document..."
-                
-                do {
-                    let documentData = try await telegramService.downloadDocument(fileId: document.fileId)
-                    let originalName = document.fileName ?? "document"
-                    let ext = URL(fileURLWithPath: originalName).pathExtension
-                    let fileName = "ref_\(UUID().uuidString.prefix(8)).\(ext.isEmpty ? "bin" : ext)"
-                    let fileURL = documentsDirectory.appendingPathComponent(fileName)
-                    try documentData.write(to: fileURL)
-                    
-                    pendingReferencedDocuments.append((fileName: fileName, fileSize: documentData.count))
-                    print("[ConversationManager] Buffered referenced document: \(fileName) (\(originalName), \(documentData.count) bytes)")
-                } catch {
-                    print("[ConversationManager] Failed to download referenced document: \(error)")
+                let originalName = document.fileName ?? "document"
+
+                if let declaredSize = document.fileSize, declaredSize > Self.telegramBotDownloadLimitBytes {
+                    await noteOversizedAttachment(name: originalName, sizeBytes: declaredSize, referenced: true)
+                } else {
+                    statusMessage = "Downloading referenced document..."
+
+                    do {
+                        let documentData = try await telegramService.downloadDocument(fileId: document.fileId)
+                        let ext = URL(fileURLWithPath: originalName).pathExtension
+                        let fileName = "ref_\(UUID().uuidString.prefix(8)).\(ext.isEmpty ? "bin" : ext)"
+                        let fileURL = documentsDirectory.appendingPathComponent(fileName)
+                        try documentData.write(to: fileURL)
+
+                        pendingReferencedDocuments.append((fileName: fileName, fileSize: documentData.count))
+                        print("[ConversationManager] Buffered referenced document: \(fileName) (\(originalName), \(documentData.count) bytes)")
+                    } catch {
+                        await noteFailedAttachmentDownload(name: originalName, error: error, referenced: true)
+                    }
                 }
             }
             
             // Download referenced video if user replied to a video message
             if let video = replyToMsg.video {
-                statusMessage = "Downloading referenced video..."
-                
-                do {
-                    let videoData = try await telegramService.downloadDocument(fileId: video.fileId)
-                    let ext: String
-                    if let mimeType = video.mimeType {
-                        switch mimeType {
-                        case "video/mp4": ext = "mp4"
-                        case "video/quicktime": ext = "mov"
-                        case "video/webm": ext = "webm"
-                        default: ext = "mp4"
+                let displayName = video.fileName ?? "video"
+
+                if let declaredSize = video.fileSize, declaredSize > Self.telegramBotDownloadLimitBytes {
+                    await noteOversizedAttachment(name: displayName, sizeBytes: declaredSize, referenced: true)
+                } else {
+                    statusMessage = "Downloading referenced video..."
+
+                    do {
+                        let videoData = try await telegramService.downloadDocument(fileId: video.fileId)
+                        let ext: String
+                        if let mimeType = video.mimeType {
+                            switch mimeType {
+                            case "video/mp4": ext = "mp4"
+                            case "video/quicktime": ext = "mov"
+                            case "video/webm": ext = "webm"
+                            default: ext = "mp4"
+                            }
+                        } else {
+                            ext = "mp4"
                         }
-                    } else {
-                        ext = "mp4"
+                        let fileName = "ref_\(UUID().uuidString.prefix(8)).\(ext)"
+                        let fileURL = documentsDirectory.appendingPathComponent(fileName)
+                        try videoData.write(to: fileURL)
+
+                        pendingReferencedDocuments.append((fileName: fileName, fileSize: videoData.count))
+                        print("[ConversationManager] Buffered referenced video: \(fileName) (\(videoData.count) bytes)")
+                    } catch {
+                        await noteFailedAttachmentDownload(name: displayName, error: error, referenced: true)
                     }
-                    let fileName = "ref_\(UUID().uuidString.prefix(8)).\(ext)"
-                    let fileURL = documentsDirectory.appendingPathComponent(fileName)
-                    try videoData.write(to: fileURL)
-                    
-                    pendingReferencedDocuments.append((fileName: fileName, fileSize: videoData.count))
-                    print("[ConversationManager] Buffered referenced video: \(fileName) (\(videoData.count) bytes)")
-                } catch {
-                    print("[ConversationManager] Failed to download referenced video: \(error)")
                 }
             }
         }
@@ -654,15 +700,15 @@ class ConversationManager: ObservableObject {
                 
                 pendingImages.append((fileName: fileName, fileSize: imageData.count))
                 print("[ConversationManager] Buffered image: \(fileName) (\(imageData.count) bytes)")
-                
-                // Caption triggers processing; no caption means buffer only
-                if let caption = telegramMessage.caption, !caption.isEmpty {
-                    triggerText = caption
-                }
             } catch {
+                await noteFailedAttachmentDownload(name: "photo", error: error, referenced: false)
                 self.error = "Failed to download image: \(error.localizedDescription)"
                 statusMessage = "Image download failed"
-                return
+            }
+
+            // Caption triggers processing; no caption means buffer only
+            if let caption = telegramMessage.caption, !caption.isEmpty {
+                triggerText = caption
             }
         }
         // Voice message → transcription triggers processing
@@ -711,66 +757,81 @@ class ConversationManager: ObservableObject {
         }
         // Document message
         else if let document = telegramMessage.document {
-            statusMessage = "Downloading document..."
-            
-            do {
-                let documentData = try await telegramService.downloadDocument(fileId: document.fileId)
-                
-                let originalName = document.fileName ?? "document"
-                let ext = URL(fileURLWithPath: originalName).pathExtension
-                let fileName = "\(UUID().uuidString.prefix(8)).\(ext.isEmpty ? "bin" : ext)"
-                let fileURL = documentsDirectory.appendingPathComponent(fileName)
-                try documentData.write(to: fileURL)
-                
-                pendingDocuments.append((fileName: fileName, fileSize: documentData.count))
-                print("[ConversationManager] Buffered document: \(fileName) (\(originalName), \(documentData.count) bytes)")
-                
-                // Caption triggers processing; no caption means buffer only
-                if let caption = telegramMessage.caption, !caption.isEmpty {
-                    triggerText = caption
+            let originalName = document.fileName ?? "document"
+
+            if let declaredSize = document.fileSize, declaredSize > Self.telegramBotDownloadLimitBytes {
+                // Telegram won't serve this file to a bot at all — skip the doomed download,
+                // tell the user immediately, and let any caption still reach the agent.
+                await noteOversizedAttachment(name: originalName, sizeBytes: declaredSize, referenced: false)
+                statusMessage = "Document too large for Telegram bot download"
+            } else {
+                statusMessage = "Downloading document..."
+
+                do {
+                    let documentData = try await telegramService.downloadDocument(fileId: document.fileId)
+
+                    let ext = URL(fileURLWithPath: originalName).pathExtension
+                    let fileName = "\(UUID().uuidString.prefix(8)).\(ext.isEmpty ? "bin" : ext)"
+                    let fileURL = documentsDirectory.appendingPathComponent(fileName)
+                    try documentData.write(to: fileURL)
+
+                    pendingDocuments.append((fileName: fileName, fileSize: documentData.count))
+                    print("[ConversationManager] Buffered document: \(fileName) (\(originalName), \(documentData.count) bytes)")
+                } catch {
+                    await noteFailedAttachmentDownload(name: originalName, error: error, referenced: false)
+                    self.error = "Failed to download document: \(error.localizedDescription)"
+                    statusMessage = "Document download failed"
                 }
-            } catch {
-                self.error = "Failed to download document: \(error.localizedDescription)"
-                statusMessage = "Document download failed"
-                return
+            }
+
+            // Caption triggers processing; no caption means buffer only
+            if let caption = telegramMessage.caption, !caption.isEmpty {
+                triggerText = caption
             }
         }
         // Video message - treated as a document for storage and email purposes
         else if let video = telegramMessage.video {
-            statusMessage = "Downloading video..."
-            
-            do {
-                let videoData = try await telegramService.downloadDocument(fileId: video.fileId)
-                
-                // Use original filename if available, otherwise generate one with proper extension
-                let ext: String
-                if let mimeType = video.mimeType {
-                    switch mimeType {
-                    case "video/mp4": ext = "mp4"
-                    case "video/quicktime": ext = "mov"
-                    case "video/webm": ext = "webm"
-                    case "video/x-matroska": ext = "mkv"
-                    default: ext = "mp4"
+            let displayName = video.fileName ?? "video"
+
+            if let declaredSize = video.fileSize, declaredSize > Self.telegramBotDownloadLimitBytes {
+                await noteOversizedAttachment(name: displayName, sizeBytes: declaredSize, referenced: false)
+                statusMessage = "Video too large for Telegram bot download"
+            } else {
+                statusMessage = "Downloading video..."
+
+                do {
+                    let videoData = try await telegramService.downloadDocument(fileId: video.fileId)
+
+                    // Use original filename if available, otherwise generate one with proper extension
+                    let ext: String
+                    if let mimeType = video.mimeType {
+                        switch mimeType {
+                        case "video/mp4": ext = "mp4"
+                        case "video/quicktime": ext = "mov"
+                        case "video/webm": ext = "webm"
+                        case "video/x-matroska": ext = "mkv"
+                        default: ext = "mp4"
+                        }
+                    } else {
+                        ext = "mp4"
                     }
-                } else {
-                    ext = "mp4"
+
+                    let fileName = video.fileName ?? "\(UUID().uuidString.prefix(8)).\(ext)"
+                    let fileURL = documentsDirectory.appendingPathComponent(fileName)
+                    try videoData.write(to: fileURL)
+
+                    pendingDocuments.append((fileName: fileName, fileSize: videoData.count))
+                    print("[ConversationManager] Buffered video: \(fileName) (\(videoData.count) bytes, \(video.duration)s, \(video.width)x\(video.height))")
+                } catch {
+                    await noteFailedAttachmentDownload(name: displayName, error: error, referenced: false)
+                    self.error = "Failed to download video: \(error.localizedDescription)"
+                    statusMessage = "Video download failed"
                 }
-                
-                let fileName = video.fileName ?? "\(UUID().uuidString.prefix(8)).\(ext)"
-                let fileURL = documentsDirectory.appendingPathComponent(fileName)
-                try videoData.write(to: fileURL)
-                
-                pendingDocuments.append((fileName: fileName, fileSize: videoData.count))
-                print("[ConversationManager] Buffered video: \(fileName) (\(videoData.count) bytes, \(video.duration)s, \(video.width)x\(video.height))")
-                
-                // Caption triggers processing; no caption means buffer only
-                if let caption = telegramMessage.caption, !caption.isEmpty {
-                    triggerText = caption
-                }
-            } catch {
-                self.error = "Failed to download video: \(error.localizedDescription)"
-                statusMessage = "Video download failed"
-                return
+            }
+
+            // Caption triggers processing; no caption means buffer only
+            if let caption = telegramMessage.caption, !caption.isEmpty {
+                triggerText = caption
             }
         }
         
@@ -795,6 +856,9 @@ class ConversationManager: ObservableObject {
         if let replyCtx = pendingReplyContext {
             messageContent = replyCtx + "\n\n" + messageContent
         }
+        if !pendingAttachmentNotes.isEmpty {
+            messageContent = pendingAttachmentNotes.joined(separator: "\n") + "\n\n" + messageContent
+        }
         
         // Combine all pending media into the message
         let userMessage = Message(
@@ -816,6 +880,7 @@ class ConversationManager: ObservableObject {
         pendingReferencedDocuments.removeAll()
         pendingForwardContext = nil
         pendingReplyContext = nil
+        pendingAttachmentNotes.removeAll()
         
         messages.append(userMessage)
         saveConversation()
