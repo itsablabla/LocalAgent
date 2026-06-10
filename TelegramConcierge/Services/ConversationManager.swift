@@ -2964,6 +2964,16 @@ class ConversationManager: ObservableObject {
             switch action {
             case .toolInteractions(let index, let savedTokens):
                 guard targetMessages.indices.contains(index) else { continue }
+                // Project instructions (AGENTS.md/CLAUDE.md) ride inside tool
+                // results; once their carrying interaction leaves context, the
+                // next tool touching that project must re-inject them.
+                for interaction in targetMessages[index].toolInteractions {
+                    for result in interaction.results {
+                        for path in ProjectInstructionsTracker.markerPaths(in: result.content) {
+                            toolExecutor.projectInstructions.clearLoaded(instructionFilePath: path)
+                        }
+                    }
+                }
                 // Generate the compact log now — before clearing interactions —
                 // so the agent retains a lightweight summary of what tools ran.
                 if targetMessages[index].compactToolLog == nil {

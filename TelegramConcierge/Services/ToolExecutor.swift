@@ -13,6 +13,12 @@ actor ToolExecutor {
     }
 
     private let outputMode: OutputMode
+
+    /// Per-executor tracker for auto-loaded project instruction files
+    /// (AGENTS.md / CLAUDE.md). nonisolated so ConversationManager's pruner
+    /// can clear entries synchronously; the tracker locks internally.
+    nonisolated let projectInstructions = ProjectInstructionsTracker()
+
     private let webOrchestrator = WebOrchestrator()
     private let archiveService = ConversationArchiveService()
     private var openRouterService: OpenRouterService?
@@ -141,7 +147,17 @@ actor ToolExecutor {
     func execute(_ call: ToolCall) async throws -> ToolResultMessage {
         try Task.checkCancellation()
         return try await withTelemetry(call) {
-            try await self.executeBody(call)
+            var result = try await self.executeBody(call)
+            // First touch of a project in this context auto-loads its
+            // AGENTS.md/CLAUDE.md into the tool result (rides along like LSP
+            // diagnostics; deduped per instruction file until pruned).
+            if let instructions = self.projectInstructions.payload(
+                toolName: call.function.name,
+                argumentsJSON: call.function.arguments
+            ) {
+                result.content += instructions
+            }
+            return result
         }
     }
 
