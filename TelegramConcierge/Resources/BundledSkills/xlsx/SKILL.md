@@ -9,6 +9,8 @@ Use this skill when the user needs a real spreadsheet. Spreadsheet quality start
 
 Do not fake spreadsheet verification with screenshots alone. Open the workbook programmatically and inspect cells, dimensions, formulas, and types.
 
+**Dependencies**: openpyxl (required); the `formulas` package for true formula evaluation in `check` (recommended); LibreOffice optional for visual rendering. On an unfamiliar machine, run `python3 ${CLAUDE_SKILL_DIR}/skills_doctor.py` once — it reports every dependency of the document/media skills with install commands. Ask the user before starting large installs (LibreOffice is ~600 MB).
+
 `${CLAUDE_SKILL_DIR}/reference.md` holds the detail: schema planning checklist, common formulas, CSV import rules, full verification checklists, and the symptom→fix table. Read it when planning a non-trivial workbook or debugging a defect.
 
 ## Reliable Workflow

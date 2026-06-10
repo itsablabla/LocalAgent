@@ -9,6 +9,8 @@ Use this skill when the user needs editable slides. A good PPTX is made of nativ
 
 This skill is not a single deck style. Follow the user's template, reference, audience, and content. Use presentation craft to make the deck clear, not to force every deck into the same consulting format.
 
+**Dependencies**: python-pptx (required); LibreOffice plus Poppler or PyMuPDF for render-to-PDF visual QA. On an unfamiliar machine, run `python3 ${CLAUDE_SKILL_DIR}/skills_doctor.py` once — it reports every dependency of the document/media skills with install commands. Ask the user before starting large installs (LibreOffice is ~600 MB).
+
 `${CLAUDE_SKILL_DIR}/reference.md` holds the detail: planning checklist, slide craft defaults, geometry rules, template handling, full QA checklist, and the symptom→fix table. Read it before building a deck of any substance.
 
 ## Reliable Workflow

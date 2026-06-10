@@ -9,6 +9,8 @@ Use this skill when the user needs an editable Word document, not a fixed-layout
 
 This skill is not a house style. Preserve supplied templates and choose formatting that fits the document's purpose.
 
+**Dependencies**: python-docx (required); LibreOffice plus Poppler or PyMuPDF for render-to-PDF visual QA; Pandoc optional for Markdown drafts. On an unfamiliar machine, run `python3 ${CLAUDE_SKILL_DIR}/skills_doctor.py` once — it reports every dependency of the document/media skills with install commands. Ask the user before starting large installs (LibreOffice is ~600 MB).
+
 `${CLAUDE_SKILL_DIR}/reference.md` holds the detail: task modes, planning checklist, tables/forms craft, full QA checklist, and the symptom→fix table. Read it when building anything non-trivial or debugging a defect.
 
 ## Reliable Workflow

@@ -7,7 +7,9 @@ description: "Reliably edit video files with ffmpeg and ffprobe: trim, join, tra
 
 Use this skill for practical video edits that can be done reliably with `ffmpeg`. The goal is not to memorize filters; the goal is to inspect the input, choose the least destructive operation, create a new output file, and verify that the edit is actually correct.
 
-If `ffmpeg` or `ffprobe` is missing, tell the user what is missing and stop. Do not overwrite the original media unless the user explicitly asks.
+**Dependencies**: ffmpeg and ffprobe (required — install with `brew install ffmpeg` after telling the user). On an unfamiliar machine, run `python3 ${CLAUDE_SKILL_DIR}/skills_doctor.py` once — it reports every dependency of the document/media skills with install commands.
+
+Do not overwrite the original media unless the user explicitly asks.
 
 `${CLAUDE_SKILL_DIR}/recipes.md` contains the full command cookbook (cuts, joins, resize/crop/rotate, compression, speed changes, audio work, text/subtitles/watermarks, transitions, GIFs) plus a symptom→fix table. Read it when you need a concrete command shape; do not paste it wholesale into your reasoning.
 

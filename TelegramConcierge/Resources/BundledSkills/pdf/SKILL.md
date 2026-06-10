@@ -9,6 +9,8 @@ PDF quality comes from judgment plus inspection. Use this skill to make final fi
 
 This skill is deliberately not a design template. Do not force every PDF into the same visual style. Choose the structure, density, typography, and amount of visual treatment that fits the user's intent, source material, audience, and any supplied reference.
 
+**Dependencies**: an HTML-to-PDF engine (WeasyPrint preferred, else Chrome/Chromium — the render helper resolves this) plus Poppler or PyMuPDF for page rasterization; Pillow for the contact sheet. On an unfamiliar machine, run `python3 ${CLAUDE_SKILL_DIR}/skills_doctor.py` once — it reports every dependency of the document/media skills with install commands. Ask the user before starting large installs (LibreOffice is ~600 MB).
+
 `${CLAUDE_SKILL_DIR}/reference.md` holds the detail: document-type guidance (essay/report/transactional/letter/slide/flyer), typography and layout defaults, a starter CSS foundation for both flowing and slide-style pages, the full QA checklist, and the symptom→fix table. Read it before designing, and again when fixing layout defects.
 
 ## Non-Negotiable Workflow
