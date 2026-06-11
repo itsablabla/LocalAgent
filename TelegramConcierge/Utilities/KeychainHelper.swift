@@ -146,6 +146,7 @@ extension KeychainHelper {
 
     static let telegramBotTokenKey = "telegram_bot_token"
     static let telegramChatIdKey = "telegram_chat_id"
+    static let whatsappOwnerPhoneKey = "whatsapp_owner_phone"
     static let openRouterApiKeyKey = "openrouter_api_key"
     
     // Web Search Tool Keys

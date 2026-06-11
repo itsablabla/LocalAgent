@@ -90,6 +90,11 @@ struct Message: Identifiable, Codable, Equatable {
     // Default `.userText` means the user actually typed this and it must NEVER be compressed.
     var kind: MessageKind
 
+    // Transport the message arrived on (user messages) — the turn's replies are
+    // routed back to this address. nil for legacy messages and synthetic
+    // triggers, which fall back to the last active channel.
+    var originChannel: ChannelAddress?
+
     enum Role: String, Codable {
         case user
         case assistant
@@ -183,7 +188,8 @@ struct Message: Identifiable, Codable, Equatable {
         mediaPruned: Bool = false,
         measuredToolTokens: Int? = nil,
         measuredTokens: Int? = nil,
-        kind: MessageKind = .userText
+        kind: MessageKind = .userText,
+        originChannel: ChannelAddress? = nil
     ) {
         self.id = id
         self.role = role
@@ -208,6 +214,7 @@ struct Message: Identifiable, Codable, Equatable {
         self.measuredToolTokens = measuredToolTokens
         self.measuredTokens = measuredTokens
         self.kind = kind
+        self.originChannel = originChannel
     }
     
     // MARK: - Codable (with backward compatibility)
@@ -218,7 +225,7 @@ struct Message: Identifiable, Codable, Equatable {
         case imageFileNames, documentFileNames, imageFileSizes, documentFileSizes
         case referencedImageFileNames, referencedDocumentFileNames
         case referencedDocumentFileSizes
-        case downloadedDocumentFileNames, editedFilePaths, generatedFilePaths, accessedProjectIds, subagentSessionEvents, toolInteractions, compactToolLog, prunedContextSummary, mediaPruned, measuredToolTokens, measuredTokens, kind
+        case downloadedDocumentFileNames, editedFilePaths, generatedFilePaths, accessedProjectIds, subagentSessionEvents, toolInteractions, compactToolLog, prunedContextSummary, mediaPruned, measuredToolTokens, measuredTokens, kind, originChannel
         // Legacy single-value fields (for decoding old data)
         case imageFileName, documentFileName, imageFileSize, documentFileSize
         case referencedImageFileName, referencedDocumentFileName
@@ -325,6 +332,10 @@ struct Message: Identifiable, Codable, Equatable {
         // Message kind (new field, default to `.userText` for old stored messages so
         // legacy data is never accidentally treated as compressible).
         kind = (try? container.decodeIfPresent(MessageKind.self, forKey: .kind)) ?? .userText
+
+        // Origin channel (new field, nil for old stored messages → falls back
+        // to the last active channel at send time).
+        originChannel = try? container.decodeIfPresent(ChannelAddress.self, forKey: .originChannel)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -369,6 +380,7 @@ struct Message: Identifiable, Codable, Equatable {
         if kind != .userText {
             try container.encode(kind, forKey: .kind)
         }
+        try container.encodeIfPresent(originChannel, forKey: .originChannel)
     }
 
     // Manual Equatable — excludes toolInteractions (ToolInteraction is not Equatable)

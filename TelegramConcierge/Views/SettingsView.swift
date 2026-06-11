@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreImage
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
@@ -8,6 +9,11 @@ struct SettingsView: View {
     
     @State private var telegramToken: String = ""
     @State private var chatId: String = ""
+
+    // WhatsApp channel (Baileys sidecar)
+    @ObservedObject private var whatsAppService = WhatsAppChannelService.shared
+    @State private var whatsappEnabled: Bool = false
+    @State private var whatsappOwnerPhone: String = ""
     @State private var llmProvider: String = "lmstudio"
     @State private var lmStudioBaseURL: String = ""
     @State private var lmStudioModel: String = ""
@@ -359,6 +365,12 @@ struct SettingsView: View {
             }
 
             Section {
+                whatsappSectionContent
+            } header: {
+                Label("WhatsApp", systemImage: "message.fill")
+            }
+
+            Section {
                 voiceTranscriptionContent
             } header: {
                 Label("Voice Transcription", systemImage: "waveform")
@@ -368,6 +380,12 @@ struct SettingsView: View {
         .padding(.horizontal)
         .onChange(of: telegramToken) { _ in autoSave { saveTelegramSection() } }
         .onChange(of: chatId) { _ in autoSave { saveTelegramSection() } }
+        .onChange(of: whatsappOwnerPhone) { _ in autoSave { saveWhatsAppSection() } }
+        .onChange(of: whatsappEnabled) { enabled in
+            saveWhatsAppSection()
+            WhatsAppChannelService.shared.isEnabled = enabled
+            Task { await conversationManager.updateWhatsAppChannelRegistration() }
+        }
         .onChange(of: voiceTranscriptionProvider) { _ in
             autoSave { saveVoiceTranscriptionSection() }
             if voiceTranscriptionProvider == .local {
@@ -1342,8 +1360,71 @@ struct SettingsView: View {
         }
     }
     
+    // MARK: - WhatsApp Section
+
+    @ViewBuilder
+    private var whatsappSectionContent: some View {
+        Toggle("Enable WhatsApp", isOn: $whatsappEnabled)
+
+        TextField("Your phone number (e.g. +393331234567)", text: $whatsappOwnerPhone)
+            .textFieldStyle(.roundedBorder)
+
+        Text("The agent runs on its own dedicated WhatsApp number (pair it below). Only the number entered here — yours — is allowed to talk to it; everything else is ignored.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+        if whatsappEnabled {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(whatsAppService.state.isConnected ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(whatsAppService.state.description)
+                    .font(.caption)
+                    .foregroundColor(whatsAppService.state.isConnected ? .green : .secondary)
+            }
+
+            if let qr = whatsAppService.qrString, let image = Self.qrImage(from: qr) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Image(nsImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 220, height: 220)
+                    Text("On the agent's phone: WhatsApp → Settings → Linked Devices → Link a Device, then scan this code.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if whatsAppService.state.isConnected {
+                Button("Unlink Device (Log Out)") {
+                    Task { await WhatsAppChannelService.shared.logoutAndStop()
+                           await WhatsAppChannelService.shared.startIfEnabled() }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private static func qrImage(from string: String) -> NSImage? {
+        guard let data = string.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        let rep = NSCIImageRep(ciImage: scaled)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    private func saveWhatsAppSection() {
+        try? KeychainHelper.save(key: KeychainHelper.whatsappOwnerPhoneKey, value: whatsappOwnerPhone.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     // MARK: - Voice Transcription Content
-    
+
     @ViewBuilder
     private var voiceTranscriptionContent: some View {
         let whisper = WhisperKitService.shared
@@ -1716,6 +1797,8 @@ struct SettingsView: View {
     private func loadSettings() {
         telegramToken = KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey) ?? ""
         chatId = KeychainHelper.load(key: KeychainHelper.telegramChatIdKey) ?? ""
+        whatsappOwnerPhone = KeychainHelper.load(key: KeychainHelper.whatsappOwnerPhoneKey) ?? ""
+        whatsappEnabled = WhatsAppChannelService.shared.isEnabled
         llmProvider = KeychainHelper.load(key: KeychainHelper.llmProviderKey) ?? "lmstudio"
         lmStudioBaseURL = KeychainHelper.load(key: KeychainHelper.lmStudioBaseURLKey) ?? ""
         lmStudioModel = KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? ""

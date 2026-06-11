@@ -15,6 +15,8 @@
 		VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */; };
 		PROJINSTR123456789ABCD1 /* ProjectInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */; };
 		GITCHKPT0123456789ABCD1 /* GitCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */; };
+		CHATCHNL0123456789ABCD1 /* ChatChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHATCHNL0123456789ABCD2 /* ChatChannel.swift */; };
+		WHATSAPP0123456789ABCD1 /* WhatsAppChannelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = WHATSAPP0123456789ABCD2 /* WhatsAppChannelService.swift */; };
 		58BCD35919355360BA19A45B /* ConversationArchiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */; };
 		603CFC4690F84C64979D3048 /* WebOrchestrator+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD50E4C9FE60DE1DEB6071AF /* WebOrchestrator+Helpers.swift */; };
 		68FA8CA6412AA1AFB0B30BBA /* ToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E12F15918DC9CEE64092A28 /* ToolExecutor.swift */; };
@@ -42,6 +44,7 @@
 		APPLYPATCH0123456789AB1A /* ApplyPatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = APPLYPATCH0123456789AB1B /* ApplyPatch.swift */; };
 		BASHTOOLS0123456789AB1A /* BashTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = BASHTOOLS0123456789AB1B /* BashTools.swift */; };
 		BUNDSKILLS0123456789AB01A /* Resources/BundledSkills in Resources */ = {isa = PBXBuildFile; fileRef = BUNDSKILLS0123456789AB01B /* Resources/BundledSkills */; };
+		WABRIDGE00123456789AB01A /* Resources/WhatsAppBridge in Resources */ = {isa = PBXBuildFile; fileRef = WABRIDGE00123456789AB01B /* Resources/WhatsAppBridge */; };
 		C2B87AA65DC778516C459184 /* ConversationArchiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788EABC6659EB6C669DBACA3 /* ConversationArchiveModels.swift */; };
 		CONTACT01234567890ABCDEF1 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONTACT01234567890ABCDEF2 /* Contact.swift */; };
 		CONTEXTVIEW0123456789ABC1 /* ContextViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONTEXTVIEW0123456789ABC2 /* ContextViewerView.swift */; };
@@ -119,6 +122,7 @@
 		BADE3E4558F8DFD065AE6A26 /* DocumentModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DocumentModels.swift; sourceTree = "<group>"; };
 		BASHTOOLS0123456789AB1B /* BashTools.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashTools.swift; sourceTree = "<group>"; };
 		BUNDSKILLS0123456789AB01B /* Resources/BundledSkills */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/BundledSkills; sourceTree = "<group>"; };
+		WABRIDGE00123456789AB01B /* Resources/WhatsAppBridge */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/WhatsAppBridge; sourceTree = "<group>"; };
 		CONTACT01234567890ABCDEF2 /* Contact.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Contact.swift; sourceTree = "<group>"; };
 		CONTEXTVIEW0123456789ABC2 /* ContextViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextViewerView.swift; sourceTree = "<group>"; };
 		DA0AE409F8E6598E75DFDF72 /* WebOrchestrator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebOrchestrator.swift; sourceTree = "<group>"; };
@@ -132,6 +136,8 @@
 		VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionPreprocessorCache.swift; sourceTree = "<group>"; };
 		PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProjectInstructions.swift; sourceTree = "<group>"; };
 		GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitCheckpoint.swift; sourceTree = "<group>"; };
+		CHATCHNL0123456789ABCD2 /* ChatChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatChannel.swift; sourceTree = "<group>"; };
+		WHATSAPP0123456789ABCD2 /* WhatsAppChannelService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhatsAppChannelService.swift; sourceTree = "<group>"; };
 		F819F46CC6EAA2842A19FB51 /* ConversationArchiveService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationArchiveService.swift; sourceTree = "<group>"; };
 		FC662244A7AAD92235CE193B /* ToolModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolModels.swift; sourceTree = "<group>"; };
 		FILELDGR012345678901234B /* FilesLedger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilesLedger.swift; sourceTree = "<group>"; };
@@ -193,6 +199,7 @@
 				A1000024282D4F0100000001 /* Utilities */,
 				A1000006282D4F0100000001 /* Assets.xcassets */,
 				BUNDSKILLS0123456789AB01B /* Resources/BundledSkills */,
+				WABRIDGE00123456789AB01B /* Resources/WhatsAppBridge */,
 				A1000017282D4F0100000001 /* TelegramConcierge.entitlements */,
 			);
 			path = TelegramConcierge;
@@ -234,6 +241,8 @@
 				VISPREP0123456789ABCDE2 /* VisionPreprocessorCache.swift */,
 				PROJINSTR123456789ABCD2 /* ProjectInstructions.swift */,
 				GITCHKPT0123456789ABCD2 /* GitCheckpoint.swift */,
+				CHATCHNL0123456789ABCD2 /* ChatChannel.swift */,
+				WHATSAPP0123456789ABCD2 /* WhatsAppChannelService.swift */,
 				MINDEXP0123456789ABCDEF2 /* MindExportService.swift */,
 				PROJECTZIP0123456789ABCD2 /* ProjectsZipAutoExtractor.swift */,
 				FILETIME012345678901234B /* FileTimeTracker.swift */,
@@ -379,6 +388,7 @@
 			files = (
 				A1000005282D4F0100000001 /* Assets.xcassets in Resources */,
 				BUNDSKILLS0123456789AB01A /* Resources/BundledSkills in Resources */,
+				WABRIDGE00123456789AB01A /* Resources/WhatsAppBridge in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -423,6 +433,8 @@
 				VISPREP0123456789ABCDE1 /* VisionPreprocessorCache.swift in Sources */,
 				PROJINSTR123456789ABCD1 /* ProjectInstructions.swift in Sources */,
 				GITCHKPT0123456789ABCD1 /* GitCheckpoint.swift in Sources */,
+				CHATCHNL0123456789ABCD1 /* ChatChannel.swift in Sources */,
+				WHATSAPP0123456789ABCD1 /* WhatsAppChannelService.swift in Sources */,
 				MINDEXP0123456789ABCDEF1 /* MindExportService.swift in Sources */,
 				PROJECTZIP0123456789ABCD1 /* ProjectsZipAutoExtractor.swift in Sources */,
 				FILETIME012345678901234A /* FileTimeTracker.swift in Sources */,

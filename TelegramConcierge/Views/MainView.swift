@@ -17,7 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .chat: return "Chat"
         case .identity: return "Identity"
-        case .telegram: return "Telegram"
+        case .telegram: return "Channels"
         case .llmProvider: return "LLM Provider"
         case .services: return "Services"
         case .agents: return "Agents"

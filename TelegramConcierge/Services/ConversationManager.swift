@@ -32,6 +32,78 @@ class ConversationManager: ObservableObject {
     /// cancelled task from clearing or stealing a newer turn's partial work.
     private var activeTurnToolInteractionsByRun: [UUID: [ToolInteraction]] = [:]
     private var pairedChatId: Int?
+
+    // MARK: - Channel routing
+    //
+    // Outbound messages are routed per-address instead of hardwired to Telegram.
+    // Each user message records the channel it arrived on (Message.originChannel);
+    // that turn's replies go back there. Ambient output (reminders, email alerts,
+    // background completions, status pings) goes to the last active user channel,
+    // falling back to the Telegram pairing.
+    private var channels: [ChannelKind: any ChatChannel] = [:]
+    private var lastUserChannelAddress: ChannelAddress?
+    private let lastUserChannelDefaultsKey = "last_user_channel_address"
+
+    private var telegramAddress: ChannelAddress? {
+        pairedChatId.map { ChannelAddress(kind: .telegram, chatId: String($0)) }
+    }
+
+    /// Destination for output not tied to a specific turn.
+    private var replyAddress: ChannelAddress? {
+        lastUserChannelAddress ?? telegramAddress
+    }
+
+    private func noteUserActivity(on address: ChannelAddress) {
+        guard lastUserChannelAddress != address else { return }
+        lastUserChannelAddress = address
+        if let data = try? JSONEncoder().encode(address) {
+            UserDefaults.standard.set(data, forKey: lastUserChannelDefaultsKey)
+        }
+    }
+
+    private func loadLastUserChannelAddress() {
+        guard let data = UserDefaults.standard.data(forKey: lastUserChannelDefaultsKey),
+              let address = try? JSONDecoder().decode(ChannelAddress.self, from: data) else { return }
+        lastUserChannelAddress = address
+    }
+
+    /// Send text to an explicit address, or to `replyAddress` when nil.
+    /// Silently no-ops when no destination is configured — mirroring the old
+    /// `if let chatId = pairedChatId` guards.
+    private func sendText(_ text: String, to address: ChannelAddress? = nil) async throws {
+        guard let address = address ?? replyAddress,
+              let channel = channels[address.kind] else { return }
+        try await channel.sendText(chatId: address.chatId, text: text)
+    }
+
+    private func sendPhoto(_ imageData: Data, caption: String?, mimeType: String, to address: ChannelAddress? = nil) async throws {
+        guard let address = address ?? replyAddress,
+              let channel = channels[address.kind] else { return }
+        try await channel.sendPhoto(chatId: address.chatId, imageData: imageData, caption: caption, mimeType: mimeType)
+    }
+
+    private func sendDocument(_ documentData: Data, filename: String, caption: String?, mimeType: String, to address: ChannelAddress? = nil) async throws {
+        guard let address = address ?? replyAddress,
+              let channel = channels[address.kind] else { return }
+        try await channel.sendDocument(chatId: address.chatId, documentData: documentData, filename: filename, caption: caption, mimeType: mimeType)
+    }
+
+    /// (Un)register the WhatsApp channel to match the Settings toggle. Called
+    /// from configure() at startup and from Settings when the toggle changes,
+    /// so enabling WhatsApp mid-session takes effect without a restart.
+    func updateWhatsAppChannelRegistration() async {
+        if WhatsAppChannelService.shared.isEnabled {
+            channels[.whatsapp] = WhatsAppChannelService.shared
+            await WhatsAppChannelService.shared.startIfEnabled()
+        } else {
+            channels.removeValue(forKey: .whatsapp)
+            WhatsAppChannelService.shared.stop()
+            // Don't leave ambient output pointed at a disabled channel.
+            if lastUserChannelAddress?.kind == .whatsapp {
+                lastUserChannelAddress = telegramAddress
+            }
+        }
+    }
     
     // Pending media buffer - media is buffered until text triggers processing
     private var pendingImages: [(fileName: String, fileSize: Int)] = []
@@ -222,16 +294,16 @@ class ConversationManager: ObservableObject {
         isPrivacyModeEnabled = UserDefaults.standard.bool(forKey: privacyModeDefaultsKey)
         loadConversation()
         loadContextUsageSnapshot()
+        loadLastUserChannelAddress()
 
-        // Wire up archive status notifications to Telegram
-        let telegramSvc = telegramService
+        // Wire up archive status notifications to the active channel
         let archiveSvc = archiveService
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let chatId = self.pairedChatId
-            await archiveSvc.setStatusNotificationHandler { message in
-                guard let chatId else { return }
-                Task { try? await telegramSvc.sendMessage(chatId: chatId, text: message) }
+            await archiveSvc.setStatusNotificationHandler { [weak self] message in
+                Task { @MainActor [weak self] in
+                    try? await self?.sendText(message)
+                }
             }
         }
 
@@ -309,6 +381,13 @@ class ConversationManager: ObservableObject {
         
         pairedChatId = chatId
         await telegramService.configure(token: token)
+        channels[.telegram] = telegramService
+
+        // WhatsApp is optional — when enabled in Settings, the Baileys sidecar
+        // starts and the channel becomes routable. Disabled = not registered,
+        // so routed sends silently skip it.
+        await updateWhatsAppChannelRegistration()
+
         await openRouterService.configure(apiKey: apiKey)
         
         // Configure tool executor if web search keys are available
@@ -409,11 +488,17 @@ class ConversationManager: ObservableObject {
                     }
 
                     let updates = try await telegramService.getUpdates()
-                    
+
                     for update in updates {
                         await processUpdate(update)
                     }
-                    
+
+                    // Drain inbound WhatsApp messages (pushed by the Baileys
+                    // sidecar, buffered in the channel service).
+                    for inbound in WhatsAppChannelService.shared.drainInboundMessages() {
+                        await processWhatsAppInbound(inbound)
+                    }
+
                     statusMessage = "Listening... (Last check: \(formattedTime()))"
                     
                     // Poll every 1 second
@@ -482,8 +567,8 @@ class ConversationManager: ObservableObject {
         let note = "[Attachment '\(name)' could not be retrieved: \(detail) The file is NOT available on disk.]"
         pendingAttachmentNotes.append(note)
         print("[ConversationManager] \(note)")
-        if let notice = notifyUser, let chatId = pairedChatId {
-            try? await telegramService.sendMessage(chatId: chatId, text: notice)
+        if let notice = notifyUser {
+            try? await sendText(notice)
         }
     }
 
@@ -519,7 +604,13 @@ class ConversationManager: ObservableObject {
         if telegramMessage.from?.isBot == true {
             return
         }
-        
+
+        // Record Telegram as the active user channel so command replies and
+        // ambient output route here until the user writes on another channel.
+        if let address = telegramAddress {
+            noteUserActivity(on: address)
+        }
+
         if let text = telegramMessage.text,
            await handleControlCommandIfNeeded(text) {
             return
@@ -532,13 +623,11 @@ class ConversationManager: ObservableObject {
                 detail: String((telegramMessage.text ?? "<non-text>").prefix(200)),
                 isError: true
             )
-            if let chatId = pairedChatId {
-                try? await telegramService.sendMessage(
-                    chatId: chatId,
-                    text: "⏳ I'm still working on your previous request. Send /stop to interrupt it."
-                )
-                DebugTelemetry.log(.busyReply, summary: "sent busy auto-reply")
-            }
+            try? await sendText(
+                "⏳ I'm still working on your previous request. Send /stop to interrupt it.",
+                to: telegramAddress
+            )
+            DebugTelemetry.log(.busyReply, summary: "sent busy auto-reply")
             return
         }
         
@@ -870,7 +959,8 @@ class ConversationManager: ObservableObject {
             documentFileSizes: pendingDocuments.map { $0.fileSize },
             referencedImageFileNames: pendingReferencedImages.map { $0.fileName },
             referencedDocumentFileNames: pendingReferencedDocuments.map { $0.fileName },
-            referencedDocumentFileSizes: pendingReferencedDocuments.map { $0.fileSize }
+            referencedDocumentFileSizes: pendingReferencedDocuments.map { $0.fileSize },
+            originChannel: telegramAddress
         )
         
         // Clear all buffers
@@ -885,6 +975,181 @@ class ConversationManager: ObservableObject {
         messages.append(userMessage)
         saveConversation()
         
+        statusMessage = "Generating response..."
+        startActiveProcessing(for: userMessage)
+    }
+
+    // MARK: - WhatsApp inbound
+
+    /// WhatsApp counterpart of `processUpdate`. The Baileys sidecar has already
+    /// enforced the owner-only allowlist and downloaded media to its spool; this
+    /// normalizes the event into the same pending-buffer + trigger-text flow the
+    /// Telegram path uses, tagging the resulting Message with its origin so the
+    /// turn's replies route back to WhatsApp.
+    private func processWhatsAppInbound(_ inbound: WhatsAppInboundMessage) async {
+        error = nil
+        let address = ChannelAddress(kind: .whatsapp, chatId: inbound.from)
+        noteUserActivity(on: address)
+
+        // Control commands work identically on every channel.
+        if let text = inbound.text, await handleControlCommandIfNeeded(text) {
+            return
+        }
+
+        if activeRunId != nil {
+            DebugTelemetry.log(
+                .messageDrop,
+                summary: "dropped WhatsApp msg during active turn",
+                detail: String((inbound.text ?? inbound.caption ?? "<non-text>").prefix(200)),
+                isError: true
+            )
+            try? await sendText(
+                "⏳ I'm still working on your previous request. Send /stop to interrupt it.",
+                to: address
+            )
+            DebugTelemetry.log(.busyReply, summary: "sent busy auto-reply")
+            return
+        }
+
+        // Quoted-reply context (user replied to an earlier message)
+        if let quoted = inbound.quoted {
+            let sender = quoted.fromMe ? "your previous message" : "their previous message"
+            let newReplyContext = "[Replying to \(sender): \"\(quoted.text)\"]"
+            pendingReplyContext = pendingReplyContext.map { $0 + "\n" + newReplyContext } ?? newReplyContext
+        }
+
+        if let mediaError = inbound.mediaError {
+            await noteUnavailableAttachment(
+                name: inbound.media?.filename ?? "WhatsApp attachment",
+                detail: "the download from WhatsApp failed (\(mediaError)).",
+                notifyUser: "⚠️ I couldn't download the attachment from WhatsApp: \(mediaError)"
+            )
+        }
+
+        var triggerText: String? = inbound.text
+
+        if let media = inbound.media {
+            let spoolURL = URL(fileURLWithPath: media.path)
+            defer { try? FileManager.default.removeItem(at: spoolURL) }
+
+            switch media.kind {
+            case "image":
+                do {
+                    let imageData = try Data(contentsOf: spoolURL)
+                    let ext = spoolURL.pathExtension.isEmpty ? "jpg" : spoolURL.pathExtension
+                    let fileName = "\(UUID().uuidString.prefix(8)).\(ext)"
+                    try imageData.write(to: imagesDirectory.appendingPathComponent(fileName))
+                    // Mirror the Telegram path: also keep a copy with the documents
+                    // so the file can ride along as an email attachment.
+                    try? imageData.write(to: documentsDirectory.appendingPathComponent(fileName))
+                    pendingImages.append((fileName: fileName, fileSize: imageData.count))
+                    print("[ConversationManager] Buffered WhatsApp image: \(fileName) (\(imageData.count) bytes)")
+                } catch {
+                    await noteFailedAttachmentDownload(name: media.filename, error: error, referenced: false)
+                }
+
+            case "voice":
+                let transcriptionProvider = currentVoiceTranscriptionProvider()
+                statusMessage = transcriptionProvider == .openAI
+                    ? "Transcribing audio with OpenAI..."
+                    : "Transcribing audio locally..."
+
+                let transcription: String?
+                switch transcriptionProvider {
+                case .openAI:
+                    let apiKey = openAITranscriptionAPIKey()
+                    guard !apiKey.isEmpty else {
+                        self.error = "OpenAI API key not set. Add it in Settings > Voice Transcription."
+                        statusMessage = "OpenAI API key missing"
+                        return
+                    }
+                    transcription = await OpenAITranscriptionService.shared.transcribeAudioFile(url: spoolURL, apiKey: apiKey)
+                case .local:
+                    guard WhisperKitService.shared.isModelReady else {
+                        self.error = "Voice model not ready. Please download it in Settings."
+                        statusMessage = "Voice model not ready"
+                        return
+                    }
+                    transcription = await WhisperKitService.shared.transcribeAudioFile(url: spoolURL)
+                }
+
+                if let transcription {
+                    triggerText = transcription
+                    print("[ConversationManager] Transcribed WhatsApp voice: \(transcription)")
+                } else {
+                    self.error = "Failed to transcribe audio"
+                    statusMessage = "Transcription failed"
+                    return
+                }
+
+            default: // document, video, anything else file-like
+                do {
+                    let documentData = try Data(contentsOf: spoolURL)
+                    let ext = URL(fileURLWithPath: media.filename).pathExtension.isEmpty
+                        ? (spoolURL.pathExtension.isEmpty ? "bin" : spoolURL.pathExtension)
+                        : URL(fileURLWithPath: media.filename).pathExtension
+                    let fileName = "\(UUID().uuidString.prefix(8)).\(ext)"
+                    try documentData.write(to: documentsDirectory.appendingPathComponent(fileName))
+                    pendingDocuments.append((fileName: fileName, fileSize: documentData.count))
+                    print("[ConversationManager] Buffered WhatsApp \(media.kind): \(fileName) (\(media.filename), \(documentData.count) bytes)")
+                } catch {
+                    await noteFailedAttachmentDownload(name: media.filename, error: error, referenced: false)
+                }
+            }
+
+            // Caption triggers processing; bare media is buffered until text arrives.
+            if let caption = inbound.caption, !caption.isEmpty {
+                triggerText = caption
+            }
+        }
+
+        guard let promptText = triggerText else {
+            let imageCount = pendingImages.count
+            let docCount = pendingDocuments.count
+            if imageCount > 0 || docCount > 0 {
+                var parts: [String] = []
+                if imageCount > 0 { parts.append("\(imageCount) image\(imageCount > 1 ? "s" : "")") }
+                if docCount > 0 { parts.append("\(docCount) file\(docCount > 1 ? "s" : "")") }
+                statusMessage = "📎 \(parts.joined(separator: ", ")) waiting for your message..."
+            }
+            return
+        }
+
+        var messageContent = promptText
+        if let fwdContext = pendingForwardContext {
+            messageContent = fwdContext + "\n\n" + messageContent
+        }
+        if let replyCtx = pendingReplyContext {
+            messageContent = replyCtx + "\n\n" + messageContent
+        }
+        if !pendingAttachmentNotes.isEmpty {
+            messageContent = pendingAttachmentNotes.joined(separator: "\n") + "\n\n" + messageContent
+        }
+
+        let userMessage = Message(
+            role: .user,
+            content: messageContent,
+            imageFileNames: pendingImages.map { $0.fileName },
+            documentFileNames: pendingDocuments.map { $0.fileName },
+            imageFileSizes: pendingImages.map { $0.fileSize },
+            documentFileSizes: pendingDocuments.map { $0.fileSize },
+            referencedImageFileNames: pendingReferencedImages.map { $0.fileName },
+            referencedDocumentFileNames: pendingReferencedDocuments.map { $0.fileName },
+            referencedDocumentFileSizes: pendingReferencedDocuments.map { $0.fileSize },
+            originChannel: address
+        )
+
+        pendingImages.removeAll()
+        pendingDocuments.removeAll()
+        pendingReferencedImages.removeAll()
+        pendingReferencedDocuments.removeAll()
+        pendingForwardContext = nil
+        pendingReplyContext = nil
+        pendingAttachmentNotes.removeAll()
+
+        messages.append(userMessage)
+        saveConversation()
+
         statusMessage = "Generating response..."
         startActiveProcessing(for: userMessage)
     }
@@ -999,10 +1264,11 @@ class ConversationManager: ObservableObject {
             }
             activeTurnToolInteractionsByRun.removeValue(forKey: runId)
 
-            if let chatId = pairedChatId, !agentChoseSilence {
+            let turnReplyAddress = userMessage.originChannel ?? replyAddress
+            if let replyTo = turnReplyAddress, !agentChoseSilence {
                 try Task.checkCancellation()
                 guard activeRunId == runId else { return }
-                try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
+                try await sendText(finalResponse, to: replyTo)
                 
                 // Send any generated images (from tool executor, renamed to avoid conflict)
                 let toolGeneratedImages = ToolExecutor.getPendingImages()
@@ -1012,7 +1278,7 @@ class ConversationManager: ObservableObject {
                     
                     do {
                         let caption = "🎨 Generated: \(prompt.prefix(200))\(prompt.count > 200 ? "..." : "")"
-                        try await telegramService.sendPhoto(chatId: chatId, imageData: imageData, caption: caption, mimeType: mimeType)
+                        try await sendPhoto(imageData, caption: caption, mimeType: mimeType, to: replyTo)
                         print("[ConversationManager] Sent generated image (\(imageData.count) bytes)")
                     } catch {
                         print("[ConversationManager] Failed to send generated image: \(error)")
@@ -1027,10 +1293,10 @@ class ConversationManager: ObservableObject {
                     
                     do {
                         if mimeType.hasPrefix("image/") {
-                            try await telegramService.sendPhoto(chatId: chatId, imageData: documentData, caption: caption, mimeType: mimeType)
+                            try await sendPhoto(documentData, caption: caption, mimeType: mimeType, to: replyTo)
                             print("[ConversationManager] Sent image as photo: \(filename) (\(documentData.count) bytes)")
                         } else {
-                            try await telegramService.sendDocument(chatId: chatId, documentData: documentData, filename: filename, caption: caption, mimeType: mimeType)
+                            try await sendDocument(documentData, filename: filename, caption: caption, mimeType: mimeType, to: replyTo)
                             print("[ConversationManager] Sent document: \(filename) (\(documentData.count) bytes)")
                         }
                     } catch {
@@ -1096,12 +1362,10 @@ class ConversationManager: ObservableObject {
             let errMessage = Message(role: .assistant, content: errText)
             messages.append(errMessage)
             saveConversation()
-            if let chatId = pairedChatId {
-                do {
-                    try await telegramService.sendMessage(chatId: chatId, text: errText)
-                } catch {
-                    print("[ConversationManager] Also failed to send error reply to Telegram: \(error)")
-                }
+            do {
+                try await sendText(errText, to: userMessage.originChannel ?? replyAddress)
+            } catch {
+                print("[ConversationManager] Also failed to send error reply: \(error)")
             }
         }
     }
@@ -1176,16 +1440,13 @@ class ConversationManager: ObservableObject {
     }
 
     private func switchLLMProvider(to provider: LLMProvider) async {
-        guard let chatId = pairedChatId else { return }
+        guard replyAddress != nil else { return }
 
         if provider == .openRouter {
             let apiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !apiKey.isEmpty else {
-                try? await telegramService.sendMessage(
-                    chatId: chatId,
-                    text: "OpenRouter is not configured yet. Add an OpenRouter API key in Settings first."
-                )
+                try? await sendText("OpenRouter is not configured yet. Add an OpenRouter API key in Settings first.")
                 return
             }
             await openRouterService.configure(apiKey: apiKey)
@@ -1199,12 +1460,9 @@ class ConversationManager: ObservableObject {
                 object: nil,
                 userInfo: ["provider": provider.rawValue]
             )
-            try await telegramService.sendMessage(chatId: chatId, text: llmProviderSwitchMessage(for: provider))
+            try await sendText(llmProviderSwitchMessage(for: provider))
         } catch {
-            try? await telegramService.sendMessage(
-                chatId: chatId,
-                text: "Could not switch LLM provider: \(error.localizedDescription)"
-            )
+            try? await sendText("Could not switch LLM provider: \(error.localizedDescription)")
         }
     }
 
@@ -1245,7 +1503,7 @@ class ConversationManager: ObservableObject {
     /// progress-ping model — user pulls the info on demand rather than
     /// being bombarded with one message per tool call.
     private func sendTurnStatus() async {
-        guard let chatId = pairedChatId else { return }
+        guard replyAddress != nil else { return }
         let log = currentTurnToolLog
 
         let contextLine = formatContextGaugeLine()
@@ -1254,7 +1512,7 @@ class ConversationManager: ObservableObject {
             let msg = activeRunId != nil
                 ? "⏳ Working on it — no tool calls yet.\n\(contextLine)"
                 : "💤 Idle. No tool activity to report.\n\(contextLine)"
-            try? await telegramService.sendMessage(chatId: chatId, text: msg)
+            try? await sendText(msg)
             return
         }
 
@@ -1274,7 +1532,7 @@ class ConversationManager: ObservableObject {
         lines.append("")
         lines.append(contextLine)
 
-        try? await telegramService.sendMessage(chatId: chatId, text: lines.joined(separator: "\n"))
+        try? await sendText(lines.joined(separator: "\n"))
     }
 
     private func formatContextGaugeLine() -> String {
@@ -1388,9 +1646,7 @@ class ConversationManager: ObservableObject {
         }
 
         guard prunableToolTokens > 0 else {
-            if let chatId = pairedChatId {
-                try? await telegramService.sendMessage(chatId: chatId, text: "No prunable tool interactions (the latest turn is always protected).")
-            }
+            try? await sendText("No prunable tool interactions (the latest turn is always protected).")
             return
         }
 
@@ -1469,12 +1725,10 @@ class ConversationManager: ObservableObject {
             refreshSystemPromptTimestamp()
         }
 
-        if let chatId = pairedChatId {
-            let msg = (prunedToolCount > 0 || prunedMediaCount > 0)
-                ? "✂️ Pruned tools from \(prunedToolCount) turn(s), media from \(prunedMediaCount) message(s). Context: ~\(beforeTokens / 1000)K → ~\(totalTokens / 1000)K tokens (target: \(targetTokens / 1000)K). Latest turn protected."
-                : "Context already under target (~\(totalTokens / 1000)K ≤ \(targetTokens / 1000)K). Nothing to prune."
-            try? await telegramService.sendMessage(chatId: chatId, text: msg)
-        }
+        let msg = (prunedToolCount > 0 || prunedMediaCount > 0)
+            ? "✂️ Pruned tools from \(prunedToolCount) turn(s), media from \(prunedMediaCount) message(s). Context: ~\(beforeTokens / 1000)K → ~\(totalTokens / 1000)K tokens (target: \(targetTokens / 1000)K). Latest turn protected."
+            : "Context already under target (~\(totalTokens / 1000)K ≤ \(targetTokens / 1000)K). Nothing to prune."
+        try? await sendText(msg)
     }
     
     private func switchVoiceTranscriptionProvider(to provider: VoiceTranscriptionProvider) async {
@@ -1493,9 +1747,7 @@ class ConversationManager: ObservableObject {
                 switchedMessage = "✅ Switched voice transcription to \(providerDisplayName)."
             } catch {
                 let errorMessage = "❌ Failed to switch voice transcription to \(providerDisplayName): \(error.localizedDescription)"
-                if let chatId = pairedChatId {
-                    try? await telegramService.sendMessage(chatId: chatId, text: errorMessage)
-                }
+                try? await sendText(errorMessage)
                 if activeRunId == nil {
                     statusMessage = "Listening... (Last check: \(formattedTime()))"
                 }
@@ -1516,9 +1768,7 @@ class ConversationManager: ObservableObject {
         }
 
         let message = ([switchedMessage] + advisoryNotes).joined(separator: "\n")
-        if let chatId = pairedChatId {
-            try? await telegramService.sendMessage(chatId: chatId, text: message)
-        }
+        try? await sendText(message)
 
         if activeRunId == nil {
             statusMessage = "Listening... (Last check: \(formattedTime()))"
@@ -1541,9 +1791,7 @@ class ConversationManager: ObservableObject {
         }
         let message = lines.joined(separator: "\n")
 
-        if let chatId = pairedChatId {
-            try? await telegramService.sendMessage(chatId: chatId, text: message)
-        }
+        try? await sendText(message)
 
         if activeRunId == nil {
             statusMessage = "Listening... (Last check: \(formattedTime()))"
@@ -1552,12 +1800,10 @@ class ConversationManager: ObservableObject {
 
     private func setPrivacyMode(enabled: Bool) async {
         guard isPrivacyModeEnabled != enabled else {
-            if let chatId = pairedChatId {
-                let message = enabled
-                    ? "Privacy mode is already enabled. The on-screen conversation and context viewer stay hidden until you send /show."
-                    : "Privacy mode is already disabled. The conversation and context viewer are visible again."
-                try? await telegramService.sendMessage(chatId: chatId, text: message)
-            }
+            let message = enabled
+                ? "Privacy mode is already enabled. The on-screen conversation and context viewer stay hidden until you send /show."
+                : "Privacy mode is already disabled. The conversation and context viewer are visible again."
+            try? await sendText(message)
 
             if activeRunId == nil {
                 statusMessage = "Listening... (Last check: \(formattedTime()))"
@@ -1568,12 +1814,10 @@ class ConversationManager: ObservableObject {
         isPrivacyModeEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: privacyModeDefaultsKey)
 
-        if let chatId = pairedChatId {
-            let message = enabled
-                ? "Privacy mode enabled. The macOS app now hides the conversation and disables the context viewer until you send /show."
-                : "Privacy mode disabled. The macOS app shows the conversation and re-enables the context viewer."
-            try? await telegramService.sendMessage(chatId: chatId, text: message)
-        }
+        let message = enabled
+            ? "Privacy mode enabled. The macOS app now hides the conversation and disables the context viewer until you send /show."
+            : "Privacy mode disabled. The macOS app shows the conversation and re-enables the context viewer."
+        try? await sendText(message)
 
         if activeRunId == nil {
             statusMessage = enabled
@@ -1600,13 +1844,11 @@ class ConversationManager: ObservableObject {
         await toolExecutor.cancelAllRunningProcesses()
         ToolExecutor.clearPendingToolOutputs()
 
-        if let chatId = pairedChatId {
-            var text = wasRunning ? "⛔ Stopped current execution." : "Nothing is currently running."
-            if killedBackgroundSubagents > 0 {
-                text += " Also cancelled \(killedBackgroundSubagents) background subagent\(killedBackgroundSubagents == 1 ? "" : "s")."
-            }
-            try? await telegramService.sendMessage(chatId: chatId, text: text)
+        var text = wasRunning ? "⛔ Stopped current execution." : "Nothing is currently running."
+        if killedBackgroundSubagents > 0 {
+            text += " Also cancelled \(killedBackgroundSubagents) background subagent\(killedBackgroundSubagents == 1 ? "" : "s")."
         }
+        try? await sendText(text)
 
         statusMessage = wasRunning ? "Cancelled" : "Listening... (Last check: \(formattedTime()))"
     }
@@ -1646,9 +1888,7 @@ class ConversationManager: ObservableObject {
             message = "No daily or monthly spend limit is currently reached. `/more1`, `/more5`, and `/more10` only work after a daily or monthly cap has been hit."
         }
 
-        if let chatId = pairedChatId {
-            try? await telegramService.sendMessage(chatId: chatId, text: message)
-        }
+        try? await sendText(message)
 
         if activeRunId == nil {
             statusMessage = "Listening... (Last check: \(formattedTime()))"
@@ -1725,13 +1965,14 @@ class ConversationManager: ObservableObject {
                 chunkSummaries: chunkSummaries,
                 currentMessages: contextResult.messagesToSend
             )
-            let chatIdForNotice = pairedChatId
-            let telegramSvc = telegramService
+            // Resolve the notice destination up-front: the detached task below
+            // outlives this actor context, so it gets the concrete channel +
+            // chat id rather than touching main-actor routing state.
+            let noticeAddress = replyAddress
+            let noticeChannel = noticeAddress.flatMap { channels[$0.kind] }
             let archiveSvc = archiveService
 
-            if let chatId = chatIdForNotice {
-                try? await telegramService.sendMessage(chatId: chatId, text: "🧠 Summarizing conversation history...")
-            }
+            try? await sendText("🧠 Summarizing conversation history...")
 
             let archiveTask = Task.detached {
                 var archived = false
@@ -1747,8 +1988,8 @@ class ConversationManager: ObservableObject {
                         retryCount += 1
                         let delay = min(baseDelay * UInt64(pow(2.0, Double(min(retryCount - 1, 5)))), maxDelay)
                         print("[ConversationManager] Archive failed (attempt \(retryCount)): \(error). Retrying in \(delay / 1_000_000_000)s...")
-                        if retryCount == 1, let chatId = chatIdForNotice {
-                            try? await telegramSvc.sendMessage(chatId: chatId, text: "📦 Archiving conversation history, please wait...")
+                        if retryCount == 1, let address = noticeAddress, let channel = noticeChannel {
+                            try? await channel.sendText(chatId: address.chatId, text: "📦 Archiving conversation history, please wait...")
                         }
                         try? await Task.sleep(nanoseconds: delay)
                     }
@@ -2938,7 +3179,7 @@ class ConversationManager: ObservableObject {
         targetTokens: Int,
         isMidLoop: Bool
     ) async {
-        guard let chatId = pairedChatId else { return }
+        guard replyAddress != nil else { return }
 
         statusMessage = "Summarizing older context before pruning..."
 
@@ -2956,7 +3197,7 @@ class ConversationManager: ObservableObject {
         let scope = pieces.isEmpty ? "older context" : pieces.joined(separator: ", ")
         let intro = isMidLoop ? "Context filled up while I was working." : "Context is getting full."
         let text = "\(intro) ✂️ Summarizing and compacting \(scope) so I can keep going. This can take a few minutes on a local model. (~\(totalTokens / 1000)K → target ~\(targetTokens / 1000)K tokens)"
-        try? await telegramService.sendMessage(chatId: chatId, text: text)
+        try? await sendText(text)
     }
 
     private func applyPrunePlan(_ plan: PrunePlan, to targetMessages: inout [Message]) {
@@ -4271,9 +4512,7 @@ class ConversationManager: ObservableObject {
             statusMessage = "Processing reminder..."
             
             // Notify user that a reminder is being processed
-            if let chatId = pairedChatId {
-                try? await telegramService.sendMessage(chatId: chatId, text: "⏰ Reminder triggered!")
-            }
+            try? await sendText("⏰ Reminder triggered!")
             
             // Format the reminder as a user message so the LLM can respond to it
             let reminderPrompt = """
@@ -4317,9 +4556,7 @@ class ConversationManager: ObservableObject {
                 saveConversation()
 
                 // Send reply via Telegram
-                if let chatId = pairedChatId {
-                    try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
-                }
+                try await sendText(finalResponse)
 
                 print("[ConversationManager] Reminder \(reminder.id) processed successfully")
             } catch {
@@ -4346,9 +4583,7 @@ class ConversationManager: ObservableObject {
         print("[ConversationManager] Scratch disk pressure: \(measurement.totalBytes) bytes across \(measurement.entries.count) entries — prompting agent")
         statusMessage = "Processing scratch-disk cleanup..."
 
-        if let chatId = pairedChatId {
-            try? await telegramService.sendMessage(chatId: chatId, text: "🧹 Scratch dir over threshold — asking the agent to curate.")
-        }
+        try? await sendText("🧹 Scratch dir over threshold — asking the agent to curate.")
 
         let prompt = ScratchDiskMonitor.formatCleanupPrompt(from: measurement)
         let userMessage = Message(role: .user, content: prompt, kind: .reminderFired)
@@ -4380,9 +4615,7 @@ class ConversationManager: ObservableObject {
             messages.append(assistantMessage)
             saveConversation()
 
-            if let chatId = pairedChatId {
-                try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
-            }
+            try await sendText(finalResponse)
         } catch {
             self.error = "Failed to process scratch cleanup: \(error.localizedDescription)"
             print("[ConversationManager] Failed to process scratch cleanup: \(error)")
@@ -4477,9 +4710,7 @@ class ConversationManager: ObservableObject {
                 messages.append(assistantMessage)
                 saveConversation()
 
-                if let chatId = pairedChatId {
-                    try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
-                }
+                try await sendText(finalResponse)
                 print("[ConversationManager] Background completion \(completion.handleId) processed")
             } catch {
                 self.error = "Failed to process bash completion: \(error.localizedDescription)"
@@ -4578,9 +4809,7 @@ class ConversationManager: ObservableObject {
                 messages.append(assistantMessage)
                 saveConversation()
 
-                if let chatId = pairedChatId {
-                    try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
-                }
+                try await sendText(finalResponse)
                 print("[ConversationManager] Background subagent \(completion.handle.id) processed")
             } catch {
                 self.error = "Failed to process subagent completion: \(error.localizedDescription)"
@@ -4693,9 +4922,7 @@ class ConversationManager: ObservableObject {
                     )
                     messages.append(assistantMessage)
                     saveConversation()
-                    if let chatId = pairedChatId {
-                        try await telegramService.sendMessage(chatId: chatId, text: finalResponse)
-                    }
+                    try await sendText(finalResponse)
                 }
                 print("[ConversationManager] bash_manage watch match batch for \(handle) processed (\(totalCount) match\(totalCount == 1 ? "" : "es"))")
             } catch {
@@ -4717,7 +4944,7 @@ class ConversationManager: ObservableObject {
     /// so the standard conversation pipeline picks it up and the agent can notify
     /// Matteo via Telegram.
     private func processNewUnreadEmails(_ emails: [GoogleWorkspaceService.UnreadEmail]) async {
-        guard pairedChatId != nil, !emails.isEmpty else { return }
+        guard replyAddress != nil, !emails.isEmpty else { return }
 
         print("[ConversationManager] Processing \(emails.count) new unread email(s) for notification")
 
