@@ -88,6 +88,38 @@ class ConversationManager: ObservableObject {
         try await channel.sendDocument(chatId: address.chatId, documentData: documentData, filename: filename, caption: caption, mimeType: mimeType)
     }
 
+    /// Deliver tool-queued media (generate_image results, send_document_to_chat
+    /// files) to the given address. User-initiated turns drain these queues in
+    /// runActiveProcessing with per-item cancellation checks; ambient turns
+    /// (reminders, background completions, scratch cleanup, watch matches) call
+    /// this right after sending their final text — previously they never drained
+    /// the queues, so a file the agent "sent" during a reminder turn silently
+    /// leaked into the next user turn.
+    private func deliverPendingToolMedia(to address: ChannelAddress? = nil) async {
+        for (imageData, mimeType, prompt) in ToolExecutor.getPendingImages() {
+            do {
+                let caption = "🎨 Generated: \(prompt.prefix(200))\(prompt.count > 200 ? "..." : "")"
+                try await sendPhoto(imageData, caption: caption, mimeType: mimeType, to: address)
+                print("[ConversationManager] Sent generated image (\(imageData.count) bytes)")
+            } catch {
+                print("[ConversationManager] Failed to send generated image: \(error)")
+            }
+        }
+        for (documentData, filename, mimeType, caption) in ToolExecutor.getPendingDocuments() {
+            do {
+                if mimeType.hasPrefix("image/") {
+                    try await sendPhoto(documentData, caption: caption, mimeType: mimeType, to: address)
+                    print("[ConversationManager] Sent image as photo: \(filename) (\(documentData.count) bytes)")
+                } else {
+                    try await sendDocument(documentData, filename: filename, caption: caption, mimeType: mimeType, to: address)
+                    print("[ConversationManager] Sent document: \(filename) (\(documentData.count) bytes)")
+                }
+            } catch {
+                print("[ConversationManager] Failed to send document \(filename): \(error)")
+            }
+        }
+    }
+
     /// (Un)register the WhatsApp channel to match the Settings toggle. Called
     /// from configure() at startup and from Settings when the toggle changes,
     /// so enabling WhatsApp mid-session takes effect without a restart.
@@ -4557,6 +4589,7 @@ class ConversationManager: ObservableObject {
 
                 // Send reply via Telegram
                 try await sendText(finalResponse)
+                await deliverPendingToolMedia()
 
                 print("[ConversationManager] Reminder \(reminder.id) processed successfully")
             } catch {
@@ -4616,6 +4649,7 @@ class ConversationManager: ObservableObject {
             saveConversation()
 
             try await sendText(finalResponse)
+            await deliverPendingToolMedia()
         } catch {
             self.error = "Failed to process scratch cleanup: \(error.localizedDescription)"
             print("[ConversationManager] Failed to process scratch cleanup: \(error)")
@@ -4711,6 +4745,7 @@ class ConversationManager: ObservableObject {
                 saveConversation()
 
                 try await sendText(finalResponse)
+                await deliverPendingToolMedia()
                 print("[ConversationManager] Background completion \(completion.handleId) processed")
             } catch {
                 self.error = "Failed to process bash completion: \(error.localizedDescription)"
@@ -4810,6 +4845,7 @@ class ConversationManager: ObservableObject {
                 saveConversation()
 
                 try await sendText(finalResponse)
+                await deliverPendingToolMedia()
                 print("[ConversationManager] Background subagent \(completion.handle.id) processed")
             } catch {
                 self.error = "Failed to process subagent completion: \(error.localizedDescription)"
@@ -4923,6 +4959,7 @@ class ConversationManager: ObservableObject {
                     messages.append(assistantMessage)
                     saveConversation()
                     try await sendText(finalResponse)
+                    await deliverPendingToolMedia()
                 }
                 print("[ConversationManager] bash_manage watch match batch for \(handle) processed (\(totalCount) match\(totalCount == 1 ? "" : "es"))")
             } catch {

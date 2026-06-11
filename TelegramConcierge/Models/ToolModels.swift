@@ -696,12 +696,12 @@ enum AvailableTools {
         )
     )
 
-    // MARK: - Send Document to Telegram Chat
-    
+    // MARK: - Send Document to the User's Chat
+
     static let sendDocumentToChat = ToolDefinition(
         function: FunctionDefinition(
             name: "send_document_to_chat",
-            description: "Send a document or file directly to the user via Telegram (main communication channel with the user). Use when the user asks you to send/share a file, document, or image. Or when you think it's appropriate.",
+            description: "Send a document or file directly to the user's chat — it is delivered on whichever channel the user is currently messaging from (Telegram or WhatsApp). Use when the user asks you to send/share a file, document, or image. Or when you think it's appropriate.",
             parameters: FunctionParameters(
                 properties: [
                     "file_path": ParameterProperty(
