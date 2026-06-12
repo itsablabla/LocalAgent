@@ -162,6 +162,11 @@ class ConversationManager: ObservableObject {
     private let toolRunLogPrefix = "[TOOL RUN LOG - compact]"
     private let maxRetainedToolRunLogs = 5
     private let maxAssistantMessageChars = 4000
+    /// Undelivered tail of the last truncated assistant reply, served chunk by
+    /// chunk via /continue. Replaced (or cleared) whenever a newer visible reply
+    /// is recorded — history must only ever contain what actually reached the
+    /// user's chat, so an unread tail is dropped once the conversation moves on.
+    private var pendingContinuationText: String?
     private let defaultToolSpendLimitPerTurnUSD = 0.20
     private let minimumToolSpendLimitPerTurnUSD = 0.001
     private var maxToolRoundsSafetyLimit: Int {
@@ -317,6 +322,10 @@ class ConversationManager: ObservableObject {
     private var contextUsageFileURL: URL {
         appFolder.appendingPathComponent("context_usage.json")
     }
+
+    private var pendingContinuationFileURL: URL {
+        appFolder.appendingPathComponent("pending_continuation.json")
+    }
     
     private var imagesDirectory: URL {
         let dir = appFolder.appendingPathComponent("images", isDirectory: true)
@@ -341,6 +350,7 @@ class ConversationManager: ObservableObject {
         loadConversation()
         loadContextUsageSnapshot()
         loadLastUserChannelAddress()
+        loadPendingContinuation()
 
         // Wire up archive status notifications to the active channel
         let archiveSvc = archiveService
@@ -1299,7 +1309,11 @@ class ConversationManager: ObservableObject {
             } else {
                 finalResponseRaw = response.finalText
             }
-            let finalResponse = capAssistantMessageForHistoryAndTelegram(finalResponseRaw)
+            // [SKIP] turns send nothing visible, so they must not disturb a
+            // pending /continue tail — only delivered replies supersede it.
+            let finalResponse = agentChoseSilence
+                ? finalResponseRaw
+                : capAssistantMessageForHistoryAndTelegram(finalResponseRaw)
             let downloadedFilenames = ToolExecutor.getPendingDownloadedFilenames()
             // Store measured token count on the user message that triggered this turn
             if let measuredUser = response.measuredUserTokens,
@@ -1499,6 +1513,9 @@ class ConversationManager: ObservableObject {
             return true
         case "/status":
             await sendTurnStatus()
+            return true
+        case "/continue":
+            await sendPendingContinuationChunk()
             return true
         default:
             return false
@@ -5237,21 +5254,93 @@ class ConversationManager: ObservableObject {
     }
 
     private func capAssistantMessageForHistoryAndTelegram(_ text: String) -> String {
-        let utf16Count = text.utf16.count
-        guard utf16Count > maxAssistantMessageChars else { return text }
-        // Truncate by UTF-16 code units (Telegram uses UTF-16 counting for its 4096 limit).
-        // Walk the string keeping only characters whose cumulative UTF-16 length fits.
+        // A reply that fits is delivered whole, and any unread tail from an
+        // earlier truncated reply is dropped — the conversation has moved on,
+        // and history must only contain what actually reached the user.
+        guard text.utf16.count > maxAssistantMessageChars else {
+            setPendingContinuation(nil)
+            return text
+        }
+        // Reserve room for the truncation notice so visible + notice stays
+        // under Telegram's 4096 UTF-16 limit.
+        let (visible, remainder) = Self.splitByUTF16(text, limit: maxAssistantMessageChars - Self.continuationNoticeReserve)
+        setPendingContinuation(remainder)
+        print("[ConversationManager] Assistant message capped (original: \(text.utf16.count) UTF-16 units, \(remainder?.utf16.count ?? 0) pending for /continue)")
+        guard let remainder else { return visible }
+        return visible + Self.continuationNotice(remainingUTF16: remainder.utf16.count)
+    }
+
+    // MARK: - Truncated-reply continuation (/continue)
+
+    /// UTF-16 headroom kept for the truncation notice and the continuation
+    /// prefix, so a chunk plus its decorations never exceeds the channel limit.
+    private static let continuationNoticeReserve = 150
+
+    private static func continuationNotice(remainingUTF16: Int) -> String {
+        "\n\n[MESSAGE TRUNCATED — \(remainingUTF16) more characters. Send /continue to receive the next part.]"
+    }
+
+    /// Split a string so the head's UTF-16 length fits within `limit`
+    /// (Telegram counts message length in UTF-16 code units), never breaking
+    /// inside a grapheme cluster. Returns nil rest when everything fits.
+    private static func splitByUTF16(_ text: String, limit: Int) -> (head: String, rest: String?) {
+        guard text.utf16.count > limit else { return (text, nil) }
         var used = 0
         var endIndex = text.startIndex
         for idx in text.indices {
             let charUTF16Len = text[idx].utf16.count
-            if used + charUTF16Len > maxAssistantMessageChars { break }
+            if used + charUTF16Len > limit { break }
             used += charUTF16Len
             endIndex = text.index(after: idx)
         }
-        let capped = String(text[text.startIndex..<endIndex])
-        print("[ConversationManager] Assistant message capped to first \(maxAssistantMessageChars) UTF-16 units (original: \(utf16Count))")
-        return capped
+        let rest = String(text[endIndex...])
+        return (String(text[text.startIndex..<endIndex]), rest.isEmpty ? nil : rest)
+    }
+
+    private func setPendingContinuation(_ text: String?) {
+        pendingContinuationText = text
+        if let text, !text.isEmpty {
+            try? Data(text.utf8).write(to: pendingContinuationFileURL)
+        } else {
+            try? FileManager.default.removeItem(at: pendingContinuationFileURL)
+        }
+    }
+
+    private func loadPendingContinuation() {
+        guard let data = try? Data(contentsOf: pendingContinuationFileURL),
+              let text = String(data: data, encoding: .utf8),
+              !text.isEmpty else { return }
+        pendingContinuationText = text
+    }
+
+    /// Deliver the next chunk of a truncated reply. The chunk is appended to
+    /// history as its own assistant message so history always mirrors exactly
+    /// what reached the user's chat — never the undelivered tail.
+    private func sendPendingContinuationChunk() async {
+        guard activeRunId == nil else {
+            try? await sendText("⏳ I'm still working on a task — send /continue again once it finishes.")
+            return
+        }
+        guard let remainder = pendingContinuationText, !remainder.isEmpty else {
+            try? await sendText("Nothing to continue — the last reply was delivered in full.")
+            return
+        }
+        let prefix = "[…continued]\n"
+        let visible: String
+        if prefix.utf16.count + remainder.utf16.count <= maxAssistantMessageChars {
+            setPendingContinuation(nil)
+            visible = prefix + remainder
+        } else {
+            let (chunk, rest) = Self.splitByUTF16(
+                remainder,
+                limit: maxAssistantMessageChars - Self.continuationNoticeReserve - prefix.utf16.count
+            )
+            setPendingContinuation(rest)
+            visible = prefix + chunk + (rest.map { Self.continuationNotice(remainingUTF16: $0.utf16.count) } ?? "")
+        }
+        messages.append(Message(role: .assistant, content: visible))
+        saveConversation()
+        try? await sendText(visible)
     }
     
     // MARK: - Image Access (for UI)
