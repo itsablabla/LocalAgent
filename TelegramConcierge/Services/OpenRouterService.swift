@@ -78,8 +78,10 @@ actor OpenRouterService {
 
     private static func isOpenCodeReasoningContentModel(_ model: String) -> Bool {
         let normalized = model.lowercased()
-        return normalized.contains("kimi-k2.6")
-            || normalized.contains("kimi-k2p6")
+        // Any Kimi K2.x (k2.6, k2.7-code, ...); "p" covers providers that
+        // normalize the dot (kimi-k2p6).
+        return normalized.contains("kimi-k2.")
+            || normalized.contains("kimi-k2p")
             || normalized.contains("deepseek-v4-pro")
             || normalized.contains("glm-5.1")
             || normalized.contains("minimax-")
@@ -2741,7 +2743,7 @@ struct OpenRouterRequest: Codable {
     /// OpenAI-standard top-level reasoning effort string (used for OpenAI-Compatible
     /// endpoints). Omitted from the encoded body when nil.
     var reasoningEffort: String? = nil
-    /// Fireworks/Kimi thinking toggle. Used for Kimi K2.6 on OpenCode Go; must not
+    /// Fireworks/Kimi thinking toggle. Used for Kimi K2.x on OpenCode Go; must not
     /// be sent together with `reasoning_effort`.
     var thinking: ThinkingConfig? = nil
     /// Fireworks/Kimi prompt-formatting control for historical reasoning content.
