@@ -31,6 +31,14 @@ class ConversationManager: ObservableObject {
     /// can be salvaged on cancellation (/stop). Keying by run id prevents a
     /// cancelled task from clearing or stealing a newer turn's partial work.
     private var activeTurnToolInteractionsByRun: [UUID: [ToolInteraction]] = [:]
+    /// User messages that arrived while a turn was already running. They are
+    /// delivered to the model at the next tool-round boundary (so it can steer
+    /// mid-task) and enter conversation history at that moment; anything still
+    /// queued when the turn ends starts a fresh follow-up turn. Messages are
+    /// never dropped.
+    private var pendingMidTurnMessages: [Message] = []
+    /// One queue ack per turn so a burst of mid-turn messages doesn't spam.
+    private var didNotifyMidTurnQueue = false
     private var pairedChatId: Int?
 
     // MARK: - Channel routing
@@ -698,21 +706,10 @@ class ConversationManager: ObservableObject {
             return
         }
         
-        if activeRunId != nil {
-            DebugTelemetry.log(
-                .messageDrop,
-                summary: "dropped msg during active turn",
-                detail: String((telegramMessage.text ?? "<non-text>").prefix(200)),
-                isError: true
-            )
-            try? await sendText(
-                "⏳ I'm still working on your previous request. Send /stop to interrupt it.",
-                to: telegramAddress
-            )
-            DebugTelemetry.log(.busyReply, summary: "sent busy auto-reply")
-            return
-        }
-        
+        // NOTE: messages arriving during an active turn are no longer dropped
+        // here. They flow through the normal media/voice pipeline below and
+        // dispatchUserTurn() queues them for mid-turn delivery to the model.
+
         // Extract forward context if this is a forwarded message (accumulate with pending)
         if telegramMessage.isForwarded {
             var forwardSource = "unknown"
@@ -1054,11 +1051,7 @@ class ConversationManager: ObservableObject {
         pendingReplyContext = nil
         pendingAttachmentNotes.removeAll()
         
-        messages.append(userMessage)
-        saveConversation()
-        
-        statusMessage = "Generating response..."
-        startActiveProcessing(for: userMessage)
+        await dispatchUserTurn(userMessage)
     }
 
     // MARK: - WhatsApp inbound
@@ -1078,20 +1071,9 @@ class ConversationManager: ObservableObject {
             return
         }
 
-        if activeRunId != nil {
-            DebugTelemetry.log(
-                .messageDrop,
-                summary: "dropped WhatsApp msg during active turn",
-                detail: String((inbound.text ?? inbound.caption ?? "<non-text>").prefix(200)),
-                isError: true
-            )
-            try? await sendText(
-                "⏳ I'm still working on your previous request. Send /stop to interrupt it.",
-                to: address
-            )
-            DebugTelemetry.log(.busyReply, summary: "sent busy auto-reply")
-            return
-        }
+        // NOTE: messages arriving during an active turn are no longer dropped
+        // here. They flow through the normal media/voice pipeline below and
+        // dispatchUserTurn() queues them for mid-turn delivery to the model.
 
         // Quoted-reply context (user replied to an earlier message)
         if let quoted = inbound.quoted {
@@ -1229,11 +1211,77 @@ class ConversationManager: ObservableObject {
         pendingReplyContext = nil
         pendingAttachmentNotes.removeAll()
 
+        await dispatchUserTurn(userMessage)
+    }
+
+    /// Route a fully-built user message: start a turn when idle, or queue it
+    /// for mid-turn delivery when one is already running. Queued messages are
+    /// NOT appended to history here — they enter `messages` at the moment they
+    /// are actually shown to the model (next tool-round boundary, or the
+    /// follow-up turn launched when this one ends), so history order always
+    /// matches what the model saw.
+    private func dispatchUserTurn(_ userMessage: Message) async {
+        if activeRunId != nil || activeProcessingTask != nil {
+            pendingMidTurnMessages.append(userMessage)
+            DebugTelemetry.log(
+                .info,
+                summary: "queued msg during active turn",
+                detail: String(userMessage.content.prefix(200))
+            )
+            if !didNotifyMidTurnQueue {
+                didNotifyMidTurnQueue = true
+                try? await sendText(
+                    "📨 Got it — I'm still working on the previous request and will take this into account. Send /stop to interrupt instead.",
+                    to: userMessage.originChannel ?? replyAddress
+                )
+            }
+            statusMessage = "Message queued for in-flight turn"
+            return
+        }
+
         messages.append(userMessage)
         saveConversation()
 
         statusMessage = "Generating response..."
         startActiveProcessing(for: userMessage)
+    }
+
+    /// Drain queued mid-turn user messages into the last tool result of the
+    /// current round so the model sees them before its next LLM call. The
+    /// drained messages are appended to conversation history at this moment —
+    /// they land just before the turn's final assistant message, matching what
+    /// the model actually saw. Attachments can't ride inline mid-turn, so the
+    /// envelope lists their absolute paths for read_file.
+    private func deliverMidTurnMessages(into results: inout [ToolResultMessage]) {
+        guard !pendingMidTurnMessages.isEmpty, !results.isEmpty else { return }
+        let drained = pendingMidTurnMessages
+        pendingMidTurnMessages.removeAll()
+
+        var blocks: [String] = []
+        for message in drained {
+            messages.append(message)
+            var block = """
+            [USER MESSAGE — arrived while you were working. This is the user speaking, with the same authority as any chat message. Factor it into the current task — adjust course if it asks you to, and make sure your final reply addresses it.]
+            \(message.content)
+            """
+            let attachmentPaths =
+                message.imageFileNames.map { imagesDirectory.appendingPathComponent($0).path }
+                + message.documentFileNames.map { documentsDirectory.appendingPathComponent($0).path }
+                + message.referencedImageFileNames.map { imagesDirectory.appendingPathComponent($0).path }
+                + message.referencedDocumentFileNames.map { documentsDirectory.appendingPathComponent($0).path }
+            if !attachmentPaths.isEmpty {
+                block += "\n[Attached files (use read_file to view): \(attachmentPaths.joined(separator: ", "))]"
+            }
+            blocks.append(block)
+            DebugTelemetry.log(
+                .info,
+                summary: "delivered mid-turn msg to model",
+                detail: String(message.content.prefix(200))
+            )
+        }
+        saveConversation()
+
+        results[results.count - 1].content += "\n\n" + blocks.joined(separator: "\n\n")
     }
 
     private func startActiveProcessing(for userMessage: Message) {
@@ -1260,11 +1308,27 @@ class ConversationManager: ObservableObject {
                 activeProcessingTask = nil
                 currentTurnLogIsActive = false
             }
+            // User messages that arrived too late to steer this turn (during
+            // final text generation, after /stop, or after an error) start a
+            // fresh follow-up turn now so they are never silently dropped.
+            // All queued messages enter history; the last one is the trigger
+            // (the new turn's context window includes them all).
+            if isPolling, activeRunId == nil, activeProcessingTask == nil,
+               let trigger = pendingMidTurnMessages.last {
+                let queued = pendingMidTurnMessages
+                pendingMidTurnMessages.removeAll()
+                messages.append(contentsOf: queued)
+                saveConversation()
+                print("[ConversationManager] Starting follow-up turn for \(queued.count) queued mid-turn message(s)")
+                statusMessage = "Generating response..."
+                startActiveProcessing(for: trigger)
+            }
         }
 
         // Reset the per-turn tool log so /status shows only this turn.
         currentTurnToolLog = []
         currentTurnLogIsActive = true
+        didNotifyMidTurnQueue = false
 
         let turnStartedAt = Date()
         DebugTelemetry.log(
@@ -2464,7 +2528,13 @@ class ConversationManager: ObservableObject {
                     let existingContent = orderedToolResults[i].content
                     orderedToolResults[i].content = existingContent + "\n\n[System Note: Current time is now \(currentRealTime)]"
                 }
-                
+
+                // Deliver any user messages that arrived while this round ran.
+                // Tail-appending to the last tool result keeps the prompt
+                // prefix stable (same mechanism as the timestamp note above),
+                // so the cache is preserved and the model can steer mid-turn.
+                deliverMidTurnMessages(into: &orderedToolResults)
+
                 // Add this interaction to the chain
                 let interaction = ToolInteraction(
                     assistantMessage: assistantMessage,
@@ -5147,6 +5217,7 @@ class ConversationManager: ObservableObject {
     
     func clearConversation() {
         messages = []
+        pendingMidTurnMessages.removeAll()
         lastPromptTokens = nil
         lastCompletionTokens = nil
         saveConversation()
