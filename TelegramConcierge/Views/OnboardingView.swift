@@ -2,12 +2,24 @@ import SwiftUI
 import AppKit
 import CoreImage
 
+/// Reports the bottom edge (maxY) of the onboarding scroll content in the
+/// scroll view's coordinate space, so the view can tell when content
+/// overflows below the fold.
+private struct OnboardingContentFrameKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct OnboardingView: View {
     @EnvironmentObject var conversationManager: ConversationManager
     @Binding var isComplete: Bool
 
     @State private var step = 0
     @State private var isDescriptionModelExpanded: Bool = false
+    @State private var scrollContentBottom: CGFloat = 0
+    @State private var scrollViewportHeight: CGFloat = 0
     private let totalRequiredSteps = 4 // 0=welcome, 1=LLM, 2=persona, 3=channels
     private let totalOptionalSteps = 4 // 4=voice, 5=websearch, 6=email, 7=imagegen
 
@@ -77,22 +89,55 @@ struct OnboardingView: View {
             }
             .frame(height: 4)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    switch step {
-                    case 0: welcomeStep
-                    case 1: llmProviderStep
-                    case 2: personaStep
-                    case 3: channelsStep
-                    case 4: optionalGateStep
-                    case 5: voiceStep
-                    case 6: webSearchStep
-                    case 7: emailStep
-                    case 8: imageGenStep
-                    default: doneStep
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        switch step {
+                        case 0: welcomeStep
+                        case 1: llmProviderStep
+                        case 2: personaStep
+                        case 3: channelsStep
+                        case 4: optionalGateStep
+                        case 5: voiceStep
+                        case 6: webSearchStep
+                        case 7: emailStep
+                        case 8: imageGenStep
+                        default: doneStep
+                        }
+                    }
+                    .padding(30)
+                    .id("onboardingTop")
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: OnboardingContentFrameKey.self,
+                                value: proxy.frame(in: .named("onboardingScroll")).maxY
+                            )
+                        }
+                    )
+                }
+                .coordinateSpace(name: "onboardingScroll")
+                .scrollIndicators(.visible)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { scrollViewportHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, newValue in
+                                scrollViewportHeight = newValue
+                            }
+                    }
+                )
+                .onPreferenceChange(OnboardingContentFrameKey.self) { maxY in
+                    scrollContentBottom = maxY
+                }
+                .overlay(alignment: .bottom) {
+                    if hasMoreContentBelow {
+                        scrollDownHint
                     }
                 }
-                .padding(30)
+                .onChange(of: step) { _, _ in
+                    scrollProxy.scrollTo("onboardingTop", anchor: .top)
+                }
             }
 
             Divider()
@@ -139,8 +184,37 @@ struct OnboardingView: View {
             .padding(.horizontal, 30)
             .padding(.vertical, 15)
         }
-        .frame(width: 580, height: 620)
+        .frame(width: 580, height: 700)
         .onAppear { loadExistingSettings() }
+    }
+
+    // MARK: - Scroll overflow hint
+
+    /// True when the step's content extends below the visible scroll area —
+    /// macOS hides scrollbars until the user scrolls, so without this a
+    /// distracted user has no cue that more fields exist below the fold.
+    private var hasMoreContentBelow: Bool {
+        scrollContentBottom > scrollViewportHeight + 12
+    }
+
+    private var scrollDownHint: some View {
+        LinearGradient(
+            colors: [
+                Color(nsColor: .windowBackgroundColor).opacity(0),
+                Color(nsColor: .windowBackgroundColor)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 48)
+        .overlay(alignment: .bottom) {
+            Label("Scroll for more", systemImage: "chevron.down")
+                .font(.caption.bold())
+                .foregroundColor(.secondary)
+                .padding(.bottom, 4)
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
     }
 
     // MARK: - Steps
