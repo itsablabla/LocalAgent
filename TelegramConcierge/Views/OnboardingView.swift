@@ -61,6 +61,7 @@ struct OnboardingView: View {
     // Voice
     @State private var voiceTranscriptionProvider: VoiceTranscriptionProvider = .openAI
     @State private var openAITranscriptionApiKey: String = ""
+    @ObservedObject private var whisper = WhisperKitService.shared
 
     // Web Search
     @State private var serperApiKey: String = ""
@@ -767,9 +768,57 @@ struct OnboardingView: View {
                 Link("Get an API key at platform.openai.com/api-keys", destination: URL(string: "https://platform.openai.com/api-keys")!)
                     .font(.caption)
             } else {
-                Text("Uses WhisperKit on-device. The model will be downloaded and compiled on first use (~1.5 GB). No API key needed.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Download the Whisper model once (~630 MB) and your voice messages are transcribed on-device — private and free, no API key needed.")
+                            .font(.callout)
+
+                        HStack(spacing: 8) {
+                            if whisper.isModelReady {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Model ready")
+                                    .font(.callout)
+                                    .foregroundColor(.green)
+                            } else if whisper.isDownloading || whisper.isCompiling || whisper.isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text(whisper.statusMessage)
+                                    .font(.callout)
+                                    .foregroundColor(.secondary)
+                            } else if !whisper.hasModelOnDisk {
+                                Button("Download Whisper Model") {
+                                    Task { await whisper.startDownload() }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            } else {
+                                Button("Prepare Model") {
+                                    Task { await whisper.loadModel() }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+
+                        if whisper.isDownloading {
+                            ProgressView(value: Double(whisper.downloadProgress))
+                                .progressViewStyle(.linear)
+                        }
+
+                        if !whisper.isModelReady {
+                            Text("You can continue the setup while it downloads — everything finishes in the background, and from then on the model prepares itself automatically at every launch.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onAppear {
+                    // If the model is already on disk (e.g. re-running onboarding
+                    // after an update), prepare it without any button press.
+                    if whisper.hasModelOnDisk {
+                        Task { await whisper.checkModelStatus() }
+                    }
+                }
             }
         }
     }

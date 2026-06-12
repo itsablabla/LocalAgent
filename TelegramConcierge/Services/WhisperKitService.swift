@@ -59,28 +59,25 @@ final class WhisperKitService: ObservableObject {
     // MARK: - Model Status Check
     
     func checkModelStatus() async {
+        // Already ready or busy (a download/compile/load in flight) — nothing to do.
+        if isModelReady || isDownloading || isCompiling || isLoading { return }
         if !modelIsDownloaded {
             isModelReady = false
-            isLoading = false
-            isCompiling = false
             statusMessage = "Model not downloaded"
             return
         }
-        if !isCompiled {
-            isModelReady = false
-            isLoading = false
-            isCompiling = false
-            statusMessage = "Model not compiled"
-            return
-        }
+        // Model on disk: load it, compiling first when needed. No manual step —
+        // selecting local transcription is the user's intent, the app does the rest
+        // (the compile flag is reset on app updates, so this re-compiles silently).
         await loadModel()
     }
-    
+
     // MARK: - Model Loading
-    
+
     func loadModel() async {
+        if isModelReady || isLoading || isCompiling { return }
         let firstRunNeedsCompile = !isCompiled
-        
+
         if firstRunNeedsCompile {
             isCompiling = true
             isLoading = false
@@ -119,6 +116,7 @@ final class WhisperKitService: ObservableObject {
     // MARK: - Model Download
     
     func startDownload() async {
+        if isModelReady || isDownloading || isCompiling || isLoading { return }
         isDownloading = true
         downloadProgress = 0
         statusMessage = "Downloading transcription model…"
