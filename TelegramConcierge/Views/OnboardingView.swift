@@ -11,12 +11,21 @@ struct OnboardingView: View {
 
     // LLM Provider
     @State private var llmProvider: String = "lmstudio"
+    @State private var apiChoice: String = "opencode" // "opencode" | "openrouter" | "custom"
     @State private var openRouterApiKey: String = ""
     @State private var openRouterModel: String = ""
     @State private var lmStudioBaseURL: String = ""
     @State private var lmStudioModel: String = ""
     @State private var lmStudioDescriptionModel: String = ""
     @State private var lmStudioDescriptionBaseURL: String = ""
+    @State private var openAICompatibleBaseURL: String = ""
+    @State private var openAICompatibleModel: String = ""
+    @State private var openAICompatibleApiKey: String = ""
+    @State private var openAICompatibleReasoningEffort: String = ""
+
+    // OpenCode Go preset (the recommended cloud setup)
+    private static let openCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
+    private static let openCodeGoModel = "kimi-k2.6"
 
     // Persona
     @State private var assistantName: String = ""
@@ -160,13 +169,81 @@ struct OnboardingView: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            Picker("Provider", selection: $llmProvider) {
-                Text("Local Inference").tag("lmstudio")
-                Text("OpenRouter (Cloud)").tag("openrouter")
+            HStack(spacing: 12) {
+                setupModeCard(
+                    title: "Local",
+                    icon: "desktopcomputer",
+                    subtitle: "Models run on your own hardware. Private and free — needs a capable machine.",
+                    isSelected: llmProvider == "lmstudio"
+                ) {
+                    llmProvider = "lmstudio"
+                }
+                setupModeCard(
+                    title: "Cloud API",
+                    icon: "cloud.fill",
+                    subtitle: "A hosted frontier model via API. Best quality, no hardware needed.",
+                    isSelected: llmProvider != "lmstudio"
+                ) {
+                    selectAPIMode()
+                }
             }
-            .pickerStyle(.segmented)
 
             if llmProvider == "lmstudio" {
+                localProviderConfig
+            } else {
+                apiProviderConfig
+            }
+        }
+    }
+
+    private func setupModeCard(title: String, icon: String, subtitle: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 28))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func selectAPIMode() {
+        switch apiChoice {
+        case "openrouter":
+            llmProvider = "openrouter"
+        default:
+            llmProvider = "openai_compatible"
+            if apiChoice == "opencode" { applyOpenCodePreset() }
+        }
+    }
+
+    private func applyOpenCodePreset() {
+        openAICompatibleBaseURL = Self.openCodeGoBaseURL
+        openAICompatibleModel = Self.openCodeGoModel
+        openAICompatibleReasoningEffort = "high"
+    }
+
+    @ViewBuilder
+    private var localProviderConfig: some View {
+        Group {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Server")
@@ -230,24 +307,63 @@ struct OnboardingView: View {
                         }
                     }
                 }
+
+                Text("Web search and deep research always run on cloud models via OpenRouter — you'll add that key in a later step. Your conversations stay local either way.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
+        }
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 10) {
-                    SecureField("OpenRouter API Key", text: $openRouterApiKey)
-                        .textFieldStyle(.roundedBorder)
+    @ViewBuilder
+    private var apiProviderConfig: some View {
+        Group {
+            Picker("Service", selection: Binding(
+                get: { apiChoice },
+                set: { choice in
+                    apiChoice = choice
+                    selectAPIMode()
+                }
+            )) {
+                Text("OpenCode (Recommended)").tag("opencode")
+                Text("OpenRouter").tag("openrouter")
+                Text("Custom").tag("custom")
+            }
+            .pickerStyle(.segmented)
 
-                    if llmProvider == "lmstudio" {
-                        Text("Still needed for web search and deep research. Your conversation data and chat history are NOT sent to OpenRouter when LM Studio is selected — only search queries.")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    } else {
+            if apiChoice == "opencode" {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("OpenCode Go — best value", systemImage: "star.fill")
+                            .font(.headline)
+                            .foregroundColor(.accentColor)
+
+                        Text("The cheapest way to run LocalAgent with frontier quality: OpenCode's Go subscription ($5 the first month, then $10/month) gives you Kimi K2.6 with high reasoning through an OpenAI-compatible endpoint. Everything below is pre-configured — just add your API key.")
+                            .font(.callout)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Endpoint: \(Self.openCodeGoBaseURL)")
+                            Text("Model: \(Self.openCodeGoModel)")
+                            Text("Reasoning: High")
+                        }
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+
+                        Link("Subscribe and get your API key at opencode.ai/go", destination: URL(string: "https://opencode.ai/go")!)
+                            .font(.callout)
+
+                        SecureField("OpenCode API Key (sk-…)", text: $openAICompatibleApiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+            } else if apiChoice == "openrouter" {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SecureField("OpenRouter API Key", text: $openRouterApiKey)
+                            .textFieldStyle(.roundedBorder)
                         Text("Get your key from openrouter.ai/keys")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                    }
 
-                    if llmProvider == "openrouter" {
                         TextField("Model (optional)", text: $openRouterModel)
                             .textFieldStyle(.roundedBorder)
                         Text("Leave empty for Gemini Flash. Or use ~google/gemini-flash-latest, anthropic/claude-sonnet-4, etc.")
@@ -255,6 +371,40 @@ struct OnboardingView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+            } else {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Base URL", text: $openAICompatibleBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Any OpenAI-compatible endpoint implementing /v1/chat/completions (e.g. https://api.example.com/v1).")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        TextField("Model Name", text: $openAICompatibleModel)
+                            .textFieldStyle(.roundedBorder)
+
+                        SecureField("API Key", text: $openAICompatibleApiKey)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Sent as a Bearer token to your endpoint. Use a multimodal model so the assistant can see images and documents.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Picker("Reasoning Effort", selection: $openAICompatibleReasoningEffort) {
+                            Text("Not Specified").tag("")
+                            Text("Minimal").tag("minimal")
+                            Text("Low").tag("low")
+                            Text("Medium").tag("medium")
+                            Text("High").tag("high")
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+            }
+
+            if apiChoice != "openrouter" {
+                Text("Web search and deep research run on OpenRouter models — you'll add an OpenRouter key in a later step.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -441,6 +591,14 @@ struct OnboardingView: View {
                 }
             }
 
+            if llmProvider != "openrouter" {
+                SecureField("OpenRouter API Key", text: $openRouterApiKey)
+                    .textFieldStyle(.roundedBorder)
+                Text("Required: the search orchestrations run on OpenRouter models, so an OpenRouter API key is needed even though your main model doesn't use OpenRouter. Only search queries are sent — never your conversation. Get a key at openrouter.ai/keys")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
             SecureField("Serper API Key", text: $serperApiKey)
                 .textFieldStyle(.roundedBorder)
             Text("Powers Google search queries. Free tier available at serper.dev")
@@ -570,7 +728,20 @@ struct OnboardingView: View {
 
     private var isCurrentStepValid: Bool {
         switch step {
-        case 1: return !openRouterApiKey.isEmpty
+        case 1:
+            switch llmProvider {
+            case "lmstudio":
+                return true // defaults cover the local setup
+            case "openrouter":
+                return !openRouterApiKey.isEmpty
+            default: // openai_compatible
+                if apiChoice == "opencode" {
+                    return !openAICompatibleApiKey.isEmpty
+                }
+                return !openAICompatibleApiKey.isEmpty
+                    && !openAICompatibleBaseURL.isEmpty
+                    && !openAICompatibleModel.isEmpty
+            }
         case 2: return true // persona is optional
         case 3: return !telegramToken.isEmpty && !chatId.isEmpty
         default: return true
@@ -594,9 +765,31 @@ struct OnboardingView: View {
 
     private func saveLLMProvider() {
         try? KeychainHelper.save(key: KeychainHelper.llmProviderKey, value: llmProvider)
-        try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
+        // Only persist the OpenRouter key here when OpenRouter is the chosen
+        // provider — otherwise it's collected later in the Web Search step.
+        if llmProvider == "openrouter" || !openRouterApiKey.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
+        }
         if !openRouterModel.isEmpty {
             try? KeychainHelper.save(key: KeychainHelper.openRouterModelKey, value: openRouterModel)
+        }
+        if llmProvider == "openai_compatible" {
+            if apiChoice == "opencode" { applyOpenCodePreset() }
+            let trimmedBase = openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedBase.isEmpty {
+                try? KeychainHelper.save(key: KeychainHelper.openAICompatibleBaseURLKey, value: trimmedBase)
+            }
+            let trimmedModel = openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedModel.isEmpty {
+                try? KeychainHelper.save(key: KeychainHelper.openAICompatibleModelKey, value: trimmedModel)
+            }
+            let trimmedKey = openAICompatibleApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedKey.isEmpty {
+                try? KeychainHelper.save(key: KeychainHelper.openAICompatibleApiKeyKey, value: trimmedKey)
+            }
+            if !openAICompatibleReasoningEffort.isEmpty {
+                try? KeychainHelper.save(key: KeychainHelper.openAICompatibleReasoningEffortKey, value: openAICompatibleReasoningEffort)
+            }
         }
         if llmProvider == "lmstudio" {
             let trimmedBase = lmStudioBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -639,6 +832,9 @@ struct OnboardingView: View {
     }
 
     private func saveWebSearch() {
+        if !openRouterApiKey.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
+        }
         if !serperApiKey.isEmpty {
             try? KeychainHelper.save(key: KeychainHelper.serperApiKeyKey, value: serperApiKey)
         }
@@ -676,6 +872,16 @@ struct OnboardingView: View {
         lmStudioModel = KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? ""
         lmStudioDescriptionModel = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionModelKey) ?? ""
         lmStudioDescriptionBaseURL = KeychainHelper.load(key: KeychainHelper.lmStudioDescriptionBaseURLKey) ?? ""
+        openAICompatibleBaseURL = KeychainHelper.load(key: KeychainHelper.openAICompatibleBaseURLKey) ?? ""
+        openAICompatibleModel = KeychainHelper.load(key: KeychainHelper.openAICompatibleModelKey) ?? ""
+        openAICompatibleApiKey = KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey) ?? ""
+        openAICompatibleReasoningEffort = KeychainHelper.load(key: KeychainHelper.openAICompatibleReasoningEffortKey) ?? ""
+        // Derive the API sub-choice from what's stored
+        if llmProvider == "openrouter" {
+            apiChoice = "openrouter"
+        } else if llmProvider == "openai_compatible" {
+            apiChoice = (openAICompatibleBaseURL == Self.openCodeGoBaseURL || openAICompatibleBaseURL.isEmpty) ? "opencode" : "custom"
+        }
         assistantName = KeychainHelper.load(key: KeychainHelper.assistantNameKey) ?? ""
         userName = KeychainHelper.load(key: KeychainHelper.userNameKey) ?? ""
         userContext = KeychainHelper.load(key: KeychainHelper.structuredUserContextKey) ?? ""
@@ -741,8 +947,10 @@ struct OnboardingView: View {
         if UserDefaults.standard.bool(forKey: "onboarding_completed") { return false }
         // First launch: skip if essential fields are already configured (existing user updating the app)
         let hasToken = !(KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey) ?? "").isEmpty
-        let hasApiKey = !(KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? "").isEmpty
-        if hasToken && hasApiKey { return false }
+        let hasOpenRouterKey = !(KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? "").isEmpty
+        let hasOAICKey = !(KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey) ?? "").isEmpty
+        let hasLocalModel = !(KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? "").isEmpty
+        if hasToken && (hasOpenRouterKey || hasOAICKey || hasLocalModel) { return false }
         return true
     }
 }

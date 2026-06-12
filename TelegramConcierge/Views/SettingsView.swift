@@ -401,6 +401,26 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var openAICompatibleConfig: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recommended: OpenCode Go")
+                    .font(.headline)
+                Text("The cheapest way to run LocalAgent with frontier quality — Kimi K2.6 with high reasoning via OpenCode's Go subscription ($5 the first month, then $10/month).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Button("Apply OpenCode Go Preset") {
+                        openAICompatibleBaseURL = "https://opencode.ai/zen/go/v1"
+                        openAICompatibleModel = "kimi-k2.6"
+                        openAICompatibleReasoningEffort = "high"
+                    }
+                    Link("Get an API key at opencode.ai/go", destination: URL(string: "https://opencode.ai/go")!)
+                        .font(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
         TextField("Base URL", text: $openAICompatibleBaseURL)
             .textFieldStyle(.roundedBorder)
 
@@ -511,20 +531,14 @@ struct SettingsView: View {
                     openAICompatibleConfig
                 }
 
-                SecureField("OpenRouter API Key", text: $openRouterApiKey)
-                    .textFieldStyle(.roundedBorder)
+                if llmProvider == "openrouter" {
+                    SecureField("OpenRouter API Key", text: $openRouterApiKey)
+                        .textFieldStyle(.roundedBorder)
 
-                if llmProvider != "openrouter" {
-                    Text("OpenRouter API key is still needed for web search and deep research. Your conversation data is not sent to OpenRouter.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
                     Text("Get your API key from openrouter.ai")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                }
 
-                if llmProvider == "openrouter" {
                     TextField("Model", text: $openRouterModel)
                         .textFieldStyle(.roundedBorder)
 
@@ -667,6 +681,17 @@ struct SettingsView: View {
     private var servicesTab: some View {
         Form {
             Section {
+                if llmProvider != "openrouter" {
+                    SecureField("OpenRouter API Key", text: $openRouterApiKey)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text(openRouterApiKey.isEmpty
+                         ? "⚠️ Missing: web search and deep research run on OpenRouter models, so this key is required even though your main model doesn't use OpenRouter. Only search queries are sent — never your conversation. Get one at openrouter.ai/keys"
+                         : "Used by web search and deep research, which run on OpenRouter models. Only search queries are sent — never your conversation.")
+                        .font(.caption)
+                        .foregroundColor(openRouterApiKey.isEmpty ? .orange : .secondary)
+                }
+
                 SecureField("Serper API Key", text: $serperApiKey)
                     .textFieldStyle(.roundedBorder)
                 
@@ -928,6 +953,7 @@ struct SettingsView: View {
         .onAppear { serviceKeys = KeychainHelper.loadServiceKeys() }
         .onChange(of: serperApiKey) { _ in autoSave { saveWebSearchSection() } }
         .onChange(of: jinaApiKey) { _ in autoSave { saveWebSearchSection() } }
+        .onChange(of: openRouterApiKey) { _ in autoSave { saveWebSearchSection() } }
         .onChange(of: imageGenerationProvider) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiApiKey) { _ in autoSave { saveImageGenSection() } }
         .onChange(of: geminiImageModel) { _ in autoSave { saveImageGenSection() } }
@@ -2307,6 +2333,9 @@ struct SettingsView: View {
     }
 
     private func saveWebSearchSection() {
+        if !openRouterApiKey.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openRouterApiKeyKey, value: openRouterApiKey)
+        }
         if !serperApiKey.isEmpty {
             try? KeychainHelper.save(key: KeychainHelper.serperApiKeyKey, value: serperApiKey)
         }
