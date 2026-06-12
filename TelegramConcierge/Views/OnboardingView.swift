@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import CoreImage
 
 struct OnboardingView: View {
     @EnvironmentObject var conversationManager: ConversationManager
@@ -6,7 +8,7 @@ struct OnboardingView: View {
 
     @State private var step = 0
     @State private var isDescriptionModelExpanded: Bool = false
-    private let totalRequiredSteps = 4 // 0=welcome, 1=LLM, 2=persona, 3=telegram
+    private let totalRequiredSteps = 4 // 0=welcome, 1=LLM, 2=persona, 3=channels
     private let totalOptionalSteps = 4 // 4=voice, 5=websearch, 6=email, 7=imagegen
 
     // LLM Provider
@@ -32,12 +34,16 @@ struct OnboardingView: View {
     @State private var userName: String = ""
     @State private var userContext: String = ""
 
-    // Telegram
+    // Channels
+    @State private var telegramSelected: Bool = true
+    @State private var whatsappSelected: Bool = false
     @State private var telegramToken: String = ""
     @State private var chatId: String = ""
     @State private var isTesting: Bool = false
     @State private var botInfo: String?
     @State private var testError: String?
+    @State private var whatsappOwnerPhone: String = ""
+    @ObservedObject private var whatsAppService = WhatsAppChannelService.shared
     private let telegramService = TelegramBotService()
 
     // Voice
@@ -77,7 +83,7 @@ struct OnboardingView: View {
                     case 0: welcomeStep
                     case 1: llmProviderStep
                     case 2: personaStep
-                    case 3: telegramStep
+                    case 3: channelsStep
                     case 4: optionalGateStep
                     case 5: voiceStep
                     case 6: webSearchStep
@@ -149,7 +155,7 @@ struct OnboardingView: View {
             Text("Welcome to Telegram Concierge")
                 .font(.title.bold())
 
-            Text("Your personal AI assistant that lives inside Telegram. Let's set it up in a few steps.")
+            Text("Your personal AI assistant that lives in your messaging app — Telegram, WhatsApp, or both. Let's set it up in a few steps.")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -442,66 +448,188 @@ struct OnboardingView: View {
         }
     }
 
-    private var telegramStep: some View {
+    private var channelsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Telegram Bot", systemImage: "paperplane.fill")
+            Label("Messaging Channel", systemImage: "bubble.left.and.bubble.right.fill")
                 .font(.title2.bold())
 
-            Text("Create a Telegram bot to be your assistant's interface.")
+            Text("You'll talk to your assistant from your phone. Pick at least one channel — you can enable both.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("How to create your bot:")
-                        .font(.headline)
+            HStack(spacing: 12) {
+                setupModeCard(
+                    title: "Telegram",
+                    icon: "paperplane.fill",
+                    subtitle: "A free bot account. Quickest to set up — no extra hardware needed.",
+                    isSelected: telegramSelected
+                ) {
+                    telegramSelected.toggle()
+                }
+                setupModeCard(
+                    title: "WhatsApp",
+                    icon: "message.fill",
+                    subtitle: "The agent gets its own WhatsApp number. Needs a spare phone with a second SIM.",
+                    isSelected: whatsappSelected
+                ) {
+                    whatsappSelected.toggle()
+                }
+            }
+
+            if !telegramSelected && !whatsappSelected {
+                Text("Select at least one channel to continue.")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            if telegramSelected {
+                telegramSetupSection
+            }
+
+            if whatsappSelected {
+                whatsappSetupSection
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var telegramSetupSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Telegram", systemImage: "paperplane.fill")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Create your bot:")
+                        .font(.subheadline.bold())
                     Text("1. Open Telegram and search for @BotFather")
                     Text("2. Send /newbot and follow the prompts")
                     Text("3. Choose a name (e.g., \"My Concierge\") and a username (e.g., \"my_concierge_bot\")")
                     Text("4. BotFather will give you a token — paste it below")
                 }
                 .font(.callout)
-            }
 
-            SecureField("Bot Token", text: $telegramToken)
-                .textFieldStyle(.roundedBorder)
+                SecureField("Bot Token", text: $telegramToken)
+                    .textFieldStyle(.roundedBorder)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("How to get your Chat ID:")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Get your Chat ID:")
+                        .font(.subheadline.bold())
                     Text("1. Search for @userinfobot on Telegram")
                     Text("2. Send /start — it replies with your user ID")
                     Text("3. Paste that number below")
                 }
                 .font(.callout)
-            }
 
-            TextField("Your Chat ID", text: $chatId)
-                .textFieldStyle(.roundedBorder)
+                TextField("Your Chat ID", text: $chatId)
+                    .textFieldStyle(.roundedBorder)
 
-            if !telegramToken.isEmpty {
-                HStack {
-                    Button("Test Connection") { testConnection() }
-                        .buttonStyle(.bordered)
-                        .disabled(isTesting)
+                if !telegramToken.isEmpty {
+                    HStack {
+                        Button("Test Connection") { testConnection() }
+                            .buttonStyle(.bordered)
+                            .disabled(isTesting)
 
-                    if isTesting {
-                        ProgressView().scaleEffect(0.7)
-                    }
-                    if let info = botInfo {
-                        Label(info, systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                    if let error = testError {
-                        Label(error, systemImage: "xmark.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.red)
+                        if isTesting {
+                            ProgressView().scaleEffect(0.7)
+                        }
+                        if let info = botInfo {
+                            Label(info, systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                        if let error = testError {
+                            Label(error, systemImage: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private var whatsappSetupSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("WhatsApp", systemImage: "message.fill")
+                    .font(.headline)
+
+                Text("The agent needs its own WhatsApp account, separate from yours. That means a second phone number — a cheap prepaid SIM or eSIM works. You link it once below; after that, the spare phone can stay off in a drawer.")
+                    .font(.callout)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("1. On a spare phone, install WhatsApp and register it with the agent's new number (it only needs to receive one SMS).")
+                    Text("2. Below, enter your own WhatsApp number — NOT the agent's. This locks the agent so it only ever talks to you.")
+                    Text("3. Press Start Pairing, then on the spare phone: WhatsApp → Settings → Linked Devices → Link a Device → scan the QR code.")
+                    Text("4. Once connected, turn the spare phone off and put it away.")
+                }
+                .font(.callout)
+
+                TextField("Your personal WhatsApp number (e.g. +39 333 1234567)", text: $whatsappOwnerPhone)
+                    .textFieldStyle(.roundedBorder)
+
+                Text("This is YOUR number — the phone you'll message from. The agent's own number is never typed anywhere; scanning the QR code is what links it.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if whatsAppService.state == .disabled {
+                    Button("Start Pairing") { startWhatsAppPairing() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(whatsappOwnerPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(whatsAppService.state.isConnected ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(whatsAppService.state.description)
+                            .font(.caption)
+                            .foregroundColor(whatsAppService.state.isConnected ? .green : .secondary)
+                    }
+
+                    if let qr = whatsAppService.qrString, let image = Self.qrImage(from: qr) {
+                        Image(nsImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 200, height: 200)
+                        Text("Scan with the agent's phone: WhatsApp → Settings → Linked Devices → Link a Device.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if whatsAppService.state.isConnected {
+                        Label("Connected — you can turn the agent's phone off now.", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func startWhatsAppPairing() {
+        let phone = whatsappOwnerPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !phone.isEmpty else { return }
+        try? KeychainHelper.save(key: KeychainHelper.whatsappOwnerPhoneKey, value: phone)
+        WhatsAppChannelService.shared.isEnabled = true
+        Task { await conversationManager.updateWhatsAppChannelRegistration() }
+    }
+
+    private static func qrImage(from string: String) -> NSImage? {
+        guard let data = string.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        let rep = NSCIImageRep(ciImage: scaled)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
     }
 
     private var optionalGateStep: some View {
@@ -514,7 +642,7 @@ struct OnboardingView: View {
             Text("Core Setup Complete!")
                 .font(.title2.bold())
 
-            Text("Your assistant can now connect to Telegram and respond to messages. However, without the following services it won't be able to do much beyond basic conversation.")
+            Text("Your assistant can now connect to your messaging app and respond to messages. However, without the following services it won't be able to do much beyond basic conversation.")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -545,7 +673,7 @@ struct OnboardingView: View {
             Label("Voice Transcription", systemImage: "waveform")
                 .font(.title2.bold())
 
-            Text("Transcribe voice messages you send via Telegram.")
+            Text("Transcribe the voice messages you send in chat.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
@@ -743,7 +871,11 @@ struct OnboardingView: View {
                     && !openAICompatibleModel.isEmpty
             }
         case 2: return true // persona is optional
-        case 3: return !telegramToken.isEmpty && !chatId.isEmpty
+        case 3:
+            guard telegramSelected || whatsappSelected else { return false }
+            let telegramOK = !telegramToken.isEmpty && !chatId.isEmpty
+            let whatsappOK = !whatsappOwnerPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return (!telegramSelected || telegramOK) && (!whatsappSelected || whatsappOK)
         default: return true
         }
     }
@@ -754,7 +886,7 @@ struct OnboardingView: View {
         switch step {
         case 1: saveLLMProvider()
         case 2: savePersona()
-        case 3: saveTelegram()
+        case 3: saveChannels()
         case 5: saveVoice()
         case 6: saveWebSearch()
         case 7: saveEmail()
@@ -819,9 +951,20 @@ struct OnboardingView: View {
         }
     }
 
-    private func saveTelegram() {
-        try? KeychainHelper.save(key: KeychainHelper.telegramBotTokenKey, value: telegramToken)
-        try? KeychainHelper.save(key: KeychainHelper.telegramChatIdKey, value: chatId)
+    private func saveChannels() {
+        if telegramSelected && !telegramToken.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.telegramBotTokenKey, value: telegramToken)
+            try? KeychainHelper.save(key: KeychainHelper.telegramChatIdKey, value: chatId)
+        }
+        let phone = whatsappOwnerPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        if whatsappSelected && !phone.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.whatsappOwnerPhoneKey, value: phone)
+            WhatsAppChannelService.shared.isEnabled = true
+        } else if !whatsappSelected && WhatsAppChannelService.shared.isEnabled {
+            // Deselected during a re-run of onboarding: turn the channel off.
+            WhatsAppChannelService.shared.isEnabled = false
+        }
+        Task { await conversationManager.updateWhatsAppChannelRegistration() }
     }
 
     private func saveVoice() {
@@ -887,6 +1030,11 @@ struct OnboardingView: View {
         userContext = KeychainHelper.load(key: KeychainHelper.structuredUserContextKey) ?? ""
         telegramToken = KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey) ?? ""
         chatId = KeychainHelper.load(key: KeychainHelper.telegramChatIdKey) ?? ""
+        whatsappOwnerPhone = KeychainHelper.load(key: KeychainHelper.whatsappOwnerPhoneKey) ?? ""
+        whatsappSelected = WhatsAppChannelService.shared.isEnabled
+        // Fresh install: default to Telegram. Re-run with a WhatsApp-only
+        // setup: don't force the Telegram card on.
+        telegramSelected = !telegramToken.isEmpty || !whatsappSelected
         voiceTranscriptionProvider = VoiceTranscriptionProvider.fromStoredValue(
             KeychainHelper.load(key: KeychainHelper.voiceTranscriptionProviderKey)
         )
@@ -947,10 +1095,11 @@ struct OnboardingView: View {
         if UserDefaults.standard.bool(forKey: "onboarding_completed") { return false }
         // First launch: skip if essential fields are already configured (existing user updating the app)
         let hasToken = !(KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey) ?? "").isEmpty
+        let hasWhatsApp = !(KeychainHelper.load(key: KeychainHelper.whatsappOwnerPhoneKey) ?? "").isEmpty
         let hasOpenRouterKey = !(KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? "").isEmpty
         let hasOAICKey = !(KeychainHelper.load(key: KeychainHelper.openAICompatibleApiKeyKey) ?? "").isEmpty
         let hasLocalModel = !(KeychainHelper.load(key: KeychainHelper.lmStudioModelKey) ?? "").isEmpty
-        if hasToken && (hasOpenRouterKey || hasOAICKey || hasLocalModel) { return false }
+        if (hasToken || hasWhatsApp) && (hasOpenRouterKey || hasOAICKey || hasLocalModel) { return false }
         return true
     }
 }

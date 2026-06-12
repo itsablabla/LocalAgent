@@ -48,9 +48,23 @@ class ConversationManager: ObservableObject {
         pairedChatId.map { ChannelAddress(kind: .telegram, chatId: String($0)) }
     }
 
+    /// Whether the Telegram channel was configured at the last configure().
+    /// False in a WhatsApp-only setup — the poll loop then skips getUpdates.
+    private var isTelegramConfigured = false
+
+    /// The owner's WhatsApp DM address, derivable from settings alone — the
+    /// ambient fallback when no Telegram pairing exists (WhatsApp-only setup).
+    private var whatsappAddress: ChannelAddress? {
+        guard WhatsAppChannelService.shared.isEnabled else { return nil }
+        let digits = (KeychainHelper.load(key: KeychainHelper.whatsappOwnerPhoneKey) ?? "")
+            .filter(\.isNumber)
+        guard !digits.isEmpty else { return nil }
+        return ChannelAddress(kind: .whatsapp, chatId: "\(digits)@s.whatsapp.net")
+    }
+
     /// Destination for output not tied to a specific turn.
     private var replyAddress: ChannelAddress? {
-        lastUserChannelAddress ?? telegramAddress
+        lastUserChannelAddress ?? telegramAddress ?? whatsappAddress
     }
 
     private func noteUserActivity(on address: ChannelAddress) {
@@ -395,10 +409,17 @@ class ConversationManager: ObservableObject {
     
     func configure() async {
         let currentLLMProvider = LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey))
-        guard let token = KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey),
-              let chatIdString = KeychainHelper.load(key: KeychainHelper.telegramChatIdKey),
-              let chatId = Int(chatIdString) else {
-            error = "Please configure Telegram settings first"
+        // Either messaging channel (or both) can carry the conversation.
+        let token = (KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let chatId = (KeychainHelper.load(key: KeychainHelper.telegramChatIdKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let telegramConfigured = !token.isEmpty && Int(chatId) != nil
+        let whatsappConfigured = WhatsAppChannelService.shared.isEnabled
+            && !(KeychainHelper.load(key: KeychainHelper.whatsappOwnerPhoneKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard telegramConfigured || whatsappConfigured else {
+            error = "Please configure a messaging channel (Telegram or WhatsApp) first"
             return
         }
         let apiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) ?? ""
@@ -406,14 +427,20 @@ class ConversationManager: ObservableObject {
             error = "Please configure your OpenRouter API key"
             return
         }
-        
+
         // Get optional web search keys
         let serperKey = KeychainHelper.load(key: KeychainHelper.serperApiKeyKey) ?? ""
         let jinaKey = KeychainHelper.load(key: KeychainHelper.jinaApiKeyKey) ?? ""
-        
-        pairedChatId = chatId
-        await telegramService.configure(token: token)
-        channels[.telegram] = telegramService
+
+        if telegramConfigured {
+            pairedChatId = Int(chatId)
+            await telegramService.configure(token: token)
+            channels[.telegram] = telegramService
+        } else {
+            pairedChatId = nil
+            channels.removeValue(forKey: .telegram)
+        }
+        isTelegramConfigured = telegramConfigured
 
         // WhatsApp is optional — when enabled in Settings, the Baileys sidecar
         // starts and the channel becomes routable. Disabled = not registered,
@@ -519,10 +546,12 @@ class ConversationManager: ObservableObject {
                         DebugTelemetry.log(.pollTick, summary: "poll tick")
                     }
 
-                    let updates = try await telegramService.getUpdates()
+                    if isTelegramConfigured {
+                        let updates = try await telegramService.getUpdates()
 
-                    for update in updates {
-                        await processUpdate(update)
+                        for update in updates {
+                            await processUpdate(update)
+                        }
                     }
 
                     // Drain inbound WhatsApp messages (pushed by the Baileys
@@ -572,15 +601,26 @@ class ConversationManager: ObservableObject {
     }
 
     private func hasRequiredPollingConfiguration() -> Bool {
-        guard let token = KeychainHelper.load(key: KeychainHelper.telegramBotTokenKey),
-              let chatIdString = KeychainHelper.load(key: KeychainHelper.telegramChatIdKey),
-              let apiKey = KeychainHelper.load(key: KeychainHelper.openRouterApiKeyKey) else {
-            return false
+        func stored(_ key: String) -> String {
+            (KeychainHelper.load(key: key) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !chatIdString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let telegramReady = !stored(KeychainHelper.telegramBotTokenKey).isEmpty
+            && !stored(KeychainHelper.telegramChatIdKey).isEmpty
+        let whatsappReady = WhatsAppChannelService.shared.isEnabled
+            && !stored(KeychainHelper.whatsappOwnerPhoneKey).isEmpty
+        guard telegramReady || whatsappReady else { return false }
+
+        // The LLM credential requirement depends on the chosen provider —
+        // local servers need no key, OpenAI-compatible has its own key.
+        switch LLMProvider.fromStoredValue(KeychainHelper.load(key: KeychainHelper.llmProviderKey)) {
+        case .openRouter:
+            return !stored(KeychainHelper.openRouterApiKeyKey).isEmpty
+        case .openAICompatible:
+            return !stored(KeychainHelper.openAICompatibleApiKeyKey).isEmpty
+        case .lmStudio:
+            return true
+        }
     }
     
     // MARK: - Message Processing
