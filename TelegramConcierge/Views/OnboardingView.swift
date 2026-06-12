@@ -703,41 +703,67 @@ struct OnboardingView: View {
             Label("Web Search", systemImage: "magnifyingglass")
                 .font(.title2.bold())
 
-            Text("Your assistant has two powerful search tools: **Web Search** for quick lookups and **Deep Research** for comprehensive, multi-source analysis.")
+            Text("Lets your assistant search Google, read web pages, and run deep multi-source research. It takes three small services working together — each has a key, all set up in a minute. Only search queries are ever sent to them, never your conversation.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("How it works:")
-                        .font(.headline)
-                    Text("The search tools autonomously query Google, read dozens of web pages, and synthesize the results. They use fast gpt-oss models running on Groq/Vertex for speed.")
-                        .font(.callout)
-                    Text("These tools are cloud-based (local search at this level isn't feasible), but they are completely segregated from your conversation — they only see the search query, never your chat history.")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
+            if llmProvider != "openrouter" {
+                webSearchKeyBox(
+                    title: "Search Brain — OpenRouter",
+                    icon: "brain.head.profile",
+                    why: "Runs the fast AI models that drive the search: they decide what to look up, read the results, and write the answer. Required even though your main model doesn't use OpenRouter.",
+                    linkLabel: "Get a key at openrouter.ai/keys",
+                    url: "https://openrouter.ai/keys"
+                ) {
+                    SecureField("OpenRouter API Key", text: $openRouterApiKey)
+                        .textFieldStyle(.roundedBorder)
                 }
             }
 
-            if llmProvider != "openrouter" {
-                SecureField("OpenRouter API Key", text: $openRouterApiKey)
+            webSearchKeyBox(
+                title: "Google Search — Serper",
+                icon: "magnifyingglass",
+                why: "Performs the actual Google searches. Free tier: 2,500 searches.",
+                linkLabel: "Get a free key at serper.dev",
+                url: "https://serper.dev"
+            ) {
+                SecureField("Serper API Key", text: $serperApiKey)
                     .textFieldStyle(.roundedBorder)
-                Text("Required: the search orchestrations run on OpenRouter models, so an OpenRouter API key is needed even though your main model doesn't use OpenRouter. Only search queries are sent — never your conversation. Get a key at openrouter.ai/keys")
-                    .font(.caption)
-                    .foregroundColor(.orange)
             }
 
-            SecureField("Serper API Key", text: $serperApiKey)
-                .textFieldStyle(.roundedBorder)
-            Text("Powers Google search queries. Free tier available at serper.dev")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            webSearchKeyBox(
+                title: "Page Reader — Jina",
+                icon: "doc.plaintext",
+                why: "Turns the web pages found into clean text the assistant can read. Free tier available.",
+                linkLabel: "Get a free key at jina.ai",
+                url: "https://jina.ai"
+            ) {
+                SecureField("Jina API Key", text: $jinaApiKey)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
 
-            SecureField("Jina API Key", text: $jinaApiKey)
-                .textFieldStyle(.roundedBorder)
-            Text("Reads and extracts text from web pages. Free tier available at jina.ai")
-                .font(.caption)
-                .foregroundColor(.secondary)
+    private func webSearchKeyBox<Field: View>(
+        title: String,
+        icon: String,
+        why: String,
+        linkLabel: String,
+        url: String,
+        @ViewBuilder field: () -> Field
+    ) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(title, systemImage: icon)
+                    .font(.headline)
+                Text(why)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                Link(linkLabel, destination: URL(string: url)!)
+                    .font(.callout)
+                field()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
