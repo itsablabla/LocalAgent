@@ -71,7 +71,9 @@ struct OnboardingView: View {
     // no in-app state to carry for this step.
 
     // Image Gen
+    @State private var imageGenerationProvider: String = ImageGenerationProvider.gemini.rawValue
     @State private var geminiApiKey: String = ""
+    @State private var openAIImageApiKey: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -969,15 +971,34 @@ struct OnboardingView: View {
             Label("Image Generation", systemImage: "photo.badge.plus")
                 .font(.title2.bold())
 
-            Text("Let your assistant generate and edit images using Gemini.")
+            Text("Let your assistant generate and edit images. Pick a provider — you can switch later in Settings.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            SecureField("Gemini API Key", text: $geminiApiKey)
-                .textFieldStyle(.roundedBorder)
+            Picker("Provider", selection: $imageGenerationProvider) {
+                ForEach(ImageGenerationProvider.allCases) { provider in
+                    Text(provider.displayName).tag(provider.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
 
-            Link("Get your key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                .font(.caption)
+            if ImageGenerationProvider.fromStoredValue(imageGenerationProvider) == .gemini {
+                SecureField("Gemini API Key", text: $geminiApiKey)
+                    .textFieldStyle(.roundedBorder)
+
+                Link("Get your key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                    .font(.caption)
+            } else {
+                SecureField("OpenAI API Key", text: $openAIImageApiKey)
+                    .textFieldStyle(.roundedBorder)
+
+                Link("Get your key at platform.openai.com/api-keys", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                    .font(.caption)
+
+                Text("Uses OpenAI's image model (\(KeychainHelper.defaultOpenAIImageModel) by default). Quality and format options are in Settings > Services.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -1143,8 +1164,13 @@ struct OnboardingView: View {
     }
 
     private func saveImageGen() {
+        let provider = ImageGenerationProvider.fromStoredValue(imageGenerationProvider)
+        try? KeychainHelper.save(key: KeychainHelper.imageGenerationProviderKey, value: provider.rawValue)
         if !geminiApiKey.isEmpty {
             try? KeychainHelper.save(key: KeychainHelper.geminiApiKeyKey, value: geminiApiKey)
+        }
+        if !openAIImageApiKey.isEmpty {
+            try? KeychainHelper.save(key: KeychainHelper.openAIImageApiKeyKey, value: openAIImageApiKey)
         }
     }
 
@@ -1192,6 +1218,10 @@ struct OnboardingView: View {
         serperApiKey = KeychainHelper.load(key: KeychainHelper.serperApiKeyKey) ?? ""
         jinaApiKey = KeychainHelper.load(key: KeychainHelper.jinaApiKeyKey) ?? ""
         geminiApiKey = KeychainHelper.load(key: KeychainHelper.geminiApiKeyKey) ?? ""
+        openAIImageApiKey = KeychainHelper.load(key: KeychainHelper.openAIImageApiKeyKey) ?? ""
+        imageGenerationProvider = ImageGenerationProvider.fromStoredValue(
+            KeychainHelper.load(key: KeychainHelper.imageGenerationProviderKey)
+        ).rawValue
     }
 
     // MARK: - Local Server Presets
