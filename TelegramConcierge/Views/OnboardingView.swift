@@ -773,54 +773,53 @@ struct OnboardingView: View {
                 Label("Google Workspace (gws CLI)", systemImage: "envelope.fill")
                     .font(.title2.bold())
 
-                Text("Your assistant talks to Gmail, Calendar, Contacts, and Drive through the official Google Workspace CLI (gws). One install gets you all of Google Workspace — the app itself just reads the CLI's output.")
+                Text("Gives your assistant Gmail, Calendar, Contacts, and Drive — it reads your inbox and agenda ambiently and can act on them. Everything happens in the terminal; the browser only opens to sign in.")
                     .font(.callout)
                     .foregroundColor(.secondary)
 
-                GroupBox(label: Text("1. Install gws").font(.headline)) {
+                GroupBox(label: Text("1. Install the two CLIs").font(.headline)) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Via Homebrew (recommended on macOS):")
-                            .font(.callout)
                         Text("brew install gws")
                             .font(.system(.callout, design: .monospaced))
                             .padding(6)
                             .background(Color.secondary.opacity(0.1))
                             .cornerRadius(4)
-                        Text("Or see github.com/workspace-cli/gws for other install options.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GroupBox(label: Text("2. Create OAuth credentials").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("• Go to console.cloud.google.com")
-                        Text("• Create a project (or reuse one) and enable these APIs: Gmail, Calendar, People (Contacts), Drive — plus any others you want (Docs, Sheets, Tasks, Keep).")
-                        Text("• Create OAuth 2.0 credentials, type \"Desktop app\".")
-                        Text("• Download the credentials JSON.")
-                    }
-                    .font(.callout)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GroupBox(label: Text("3. Authenticate").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("In a terminal, run:")
-                            .font(.callout)
-                        Text("gws auth login --credentials /path/to/credentials.json")
+                        Text("brew install --cask google-cloud-sdk")
                             .font(.system(.callout, design: .monospaced))
                             .padding(6)
                             .background(Color.secondary.opacity(0.1))
                             .cornerRadius(4)
-                        Text("The first run opens a browser for consent and grants the scopes for every service you want enabled. Tokens are kept in the macOS keychain under the gws entry.")
+                        Text("gws is the Workspace CLI; Google's gcloud is needed once, for the automated setup in step 2.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Link("gws on GitHub", destination: URL(string: "https://github.com/workspace-cli/gws")!)
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox(label: Text("2. Sign in and run the automated setup").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("gcloud auth login")
+                            .font(.system(.callout, design: .monospaced))
+                            .padding(6)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(4)
+                        Text("Prints a URL — open it, sign in with your Google account. Then:")
+                            .font(.callout)
+                        Text("gws auth setup --login")
+                            .font(.system(.callout, design: .monospaced))
+                            .padding(6)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(4)
+                        Text("This single command creates the Google Cloud project, enables the Workspace APIs, creates the OAuth client, and opens the final sign-in where you grant access. No Cloud Console clicking needed.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                GroupBox(label: Text("4. Verify").font(.headline)) {
+                GroupBox(label: Text("3. Verify").font(.headline)) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Quick sanity checks — both should print JSON:")
                             .font(.callout)
@@ -832,7 +831,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Text("Your assistant auto-discovers gws on next launch. If it's not installed or not authenticated, the system prompt silently skips the inbox/calendar blocks and the turn still works — you just won't have ambient awareness.")
+                Text("Your assistant auto-discovers gws on next launch. If it's not installed or not authenticated, the inbox/calendar blocks are silently skipped and everything else still works — you can set this up any time later.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
