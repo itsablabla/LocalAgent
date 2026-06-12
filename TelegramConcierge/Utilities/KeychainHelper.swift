@@ -41,8 +41,9 @@ enum LLMProvider: String, CaseIterable, Identifiable {
 }
 
 enum VoiceTranscriptionProvider: String, CaseIterable, Identifiable {
-    case local
+    // Order matters: allCases drives the pickers, OpenAI is shown first.
     case openAI = "openai"
+    case local
 
     var id: String { rawValue }
 

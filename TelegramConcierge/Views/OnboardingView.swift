@@ -764,6 +764,8 @@ struct OnboardingView: View {
                 Text("Used for gpt-4o-transcribe. Fast and accurate.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                Link("Get an API key at platform.openai.com/api-keys", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                    .font(.caption)
             } else {
                 Text("Uses WhisperKit on-device. The model will be downloaded and compiled on first use (~1.5 GB). No API key needed.")
                     .font(.caption)
