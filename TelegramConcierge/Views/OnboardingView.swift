@@ -21,7 +21,7 @@ struct OnboardingView: View {
     @State private var scrollContentBottom: CGFloat = 0
     @State private var scrollViewportHeight: CGFloat = 0
     private let totalRequiredSteps = 4 // 0=welcome, 1=LLM, 2=persona, 3=channels
-    private let totalOptionalSteps = 4 // 4=voice, 5=websearch, 6=email, 7=imagegen
+    private let totalOptionalSteps = 5 // 4=gate, 5=voice, 6=websearch, 7=email, 8=imagegen, 9=browser
 
     // LLM Provider
     @State private var llmProvider: String = "lmstudio"
@@ -75,6 +75,11 @@ struct OnboardingView: View {
     @State private var geminiApiKey: String = ""
     @State private var openAIImageApiKey: String = ""
 
+    // Browser control (Playwright MCP)
+    @State private var playwrightEnabled: Bool = false
+    @State private var playwrightError: String?
+    @State private var nodePath: String?
+
     var body: some View {
         VStack(spacing: 0) {
             // Progress bar
@@ -105,6 +110,7 @@ struct OnboardingView: View {
                         case 6: webSearchStep
                         case 7: emailStep
                         case 8: imageGenStep
+                        case 9: browserStep
                         default: doneStep
                         }
                     }
@@ -160,7 +166,7 @@ struct OnboardingView: View {
                         .buttonStyle(.bordered)
                     Button("Continue setup") { step = 5 }
                         .buttonStyle(.borderedProminent)
-                } else if step >= 5 && step <= 8 {
+                } else if step >= 5 && step <= 9 {
                     Button("Skip") { step += 1 }
                         .buttonStyle(.bordered)
                     Button("Next") {
@@ -168,7 +174,7 @@ struct OnboardingView: View {
                         step += 1
                     }
                     .buttonStyle(.borderedProminent)
-                } else if step == 9 {
+                } else if step == 10 {
                     Button("Start Agent") { finishOnboarding() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
@@ -730,6 +736,7 @@ struct OnboardingView: View {
                 Label("Web Search — search the internet and read web pages", systemImage: "magnifyingglass")
                 Label("Google Workspace — Gmail, Calendar, Contacts, Drive via the gws CLI", systemImage: "envelope")
                 Label("Image Generation — create and edit images", systemImage: "photo.badge.plus")
+                Label("Browser Control — let the agent use a real browser", systemImage: "globe")
             }
             .font(.callout)
             .foregroundColor(.secondary)
@@ -1002,6 +1009,108 @@ struct OnboardingView: View {
         }
     }
 
+    private var browserStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Browser Control", systemImage: "globe")
+                .font(.title2.bold())
+
+            Text("Let your assistant drive a real web browser — open pages, click, fill forms, and read results. A dedicated Browse subagent does the driving; the browser runs locally on this Mac via the Playwright MCP server.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Requirement: Node.js")
+                        .font(.headline)
+
+                    if let path = nodePath {
+                        Label("Node.js detected (\(path))", systemImage: "checkmark.circle.fill")
+                            .font(.callout)
+                            .foregroundColor(.green)
+                    } else {
+                        Text("Node.js isn't installed. In a terminal, run:")
+                            .font(.callout)
+                        Text("brew install node")
+                            .font(.system(.callout, design: .monospaced))
+                            .padding(6)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(4)
+                        HStack {
+                            Button("Check Again") { nodePath = Self.detectNode() }
+                                .buttonStyle(.bordered)
+                            Link("Or download from nodejs.org", destination: URL(string: "https://nodejs.org")!)
+                                .font(.caption)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if playwrightEnabled {
+                Label("Browser control enabled — the Browse subagent is ready.", systemImage: "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundColor(.green)
+            } else {
+                Button("Enable Browser Control") { enablePlaywrightMCP() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(nodePath == nil)
+
+                if let error = playwrightError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+
+            Text("Nothing else to configure: the first browser run downloads Playwright automatically. The browser tools go only to the Browse subagent, not the main agent. You can manage MCP servers later in Settings > MCPs.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .onAppear { nodePath = Self.detectNode() }
+    }
+
+    private static func detectNode() -> String? {
+        for path in ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] {
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+        return nil
+    }
+
+    private func enablePlaywrightMCP() {
+        playwrightError = nil
+        var configs = MCPRegistry.loadConfigsFromDisk()
+        if let existing = configs.firstIndex(where: { $0.name == "playwright" }) {
+            // Already configured (possibly disabled): re-enable it.
+            let old = configs[existing]
+            configs[existing] = MCPServerConfig(
+                name: old.name,
+                command: old.command,
+                arguments: old.arguments,
+                environment: old.environment,
+                disabled: false,
+                secretRefs: old.secretRefs,
+                description: old.description
+            )
+        } else {
+            configs.append(MCPServerConfig(
+                name: "playwright",
+                command: "npx",
+                arguments: ["@playwright/mcp@latest"],
+                description: "Browser automation (drives a local browser for the Browse subagent)"
+            ))
+        }
+        do {
+            try MCPRegistry.saveConfigsToDisk(configs)
+            playwrightEnabled = true
+            Task {
+                await MCPRegistry.shared.reloadFromDisk()
+                await MCPAgentRouting.refreshFromRegistry()
+            }
+        } catch {
+            playwrightError = "Could not save MCP configuration: \(error.localizedDescription)"
+        }
+    }
+
     private var doneStep: some View {
         VStack(alignment: .center, spacing: 20) {
             Spacer()
@@ -1222,6 +1331,9 @@ struct OnboardingView: View {
         imageGenerationProvider = ImageGenerationProvider.fromStoredValue(
             KeychainHelper.load(key: KeychainHelper.imageGenerationProviderKey)
         ).rawValue
+        playwrightEnabled = MCPRegistry.loadConfigsFromDisk()
+            .contains { $0.name == "playwright" && !$0.disabled }
+        nodePath = Self.detectNode()
     }
 
     // MARK: - Local Server Presets
