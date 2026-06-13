@@ -4,11 +4,9 @@ COPY Package.swift .
 COPY Sources/ Sources/
 RUN swift build -c release --product LocalAgentServer
 
-FROM ubuntu:focal
+FROM swift:5.9-focal
 RUN apt-get update && apt-get install -y \
-    libatomic1 \
     libcurl4 \
-    libxml2 \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
