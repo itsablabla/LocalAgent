@@ -83,6 +83,10 @@ actor Bot {
                 )
                 conversationHistory.append(assistantMsg)
 
+                if let thinking = response.content, !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    try? await telegram.sendMessage(chatId: chatId, text: "💭 \(thinking)")
+                }
+
                 try? await telegram.sendTyping(chatId: chatId)
 
                 for tc in toolCalls {
