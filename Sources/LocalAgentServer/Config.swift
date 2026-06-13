@@ -58,10 +58,12 @@ struct Config {
 
     private static func parseMCPServers(_ json: String) -> [MCPServerConfig] {
         guard let data = json.data(using: .utf8),
-              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
         return arr.compactMap { d in
-            guard let name = d["name"], let url = d["url"] else { return nil }
-            return MCPServerConfig(name: name, sseURL: url, token: d["token"])
+            guard let name = d["name"] as? String, let url = d["url"] as? String else { return nil }
+            let token = d["token"] as? String
+            let extraHeaders = (d["headers"] as? [String: String]) ?? [:]
+            return MCPServerConfig(name: name, sseURL: url, token: token, extraHeaders: extraHeaders)
         }
     }
 

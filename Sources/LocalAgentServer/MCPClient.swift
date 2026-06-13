@@ -7,6 +7,7 @@ struct MCPServerConfig {
     let name: String
     let sseURL: String
     let token: String?
+    let extraHeaders: [String: String]
 }
 
 actor MCPClient {
@@ -31,6 +32,9 @@ actor MCPClient {
                     "-H", "Cache-Control: no-cache"]
         if let tok = config.token {
             args += ["-H", "Authorization: Bearer \(tok)"]
+        }
+        for (k, v) in config.extraHeaders {
+            args += ["-H", "\(k): \(v)"]
         }
         args.append(config.sseURL)
         proc.arguments = args
@@ -161,6 +165,9 @@ actor MCPClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let tok = config.token {
             req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+        }
+        for (k, v) in config.extraHeaders {
+            req.setValue(v, forHTTPHeaderField: k)
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 60
