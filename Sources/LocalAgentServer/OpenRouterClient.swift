@@ -212,7 +212,7 @@ struct OpenRouterClient {
         request.httpBody = requestData
         request.timeoutInterval = 120
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.fetchData(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw BotError.openRouterError("No HTTP response")

@@ -103,7 +103,7 @@ actor TelegramClient {
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 35
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.fetchData(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw BotError.telegramError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
         }
@@ -126,7 +126,7 @@ actor TelegramClient {
         let body: [String: Any] = ["chat_id": chatId, "text": safe]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.fetchData(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw BotError.telegramError("sendMessage HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1): \(body.prefix(200))")
@@ -142,7 +142,7 @@ actor TelegramClient {
 
         let body: [String: Any] = ["chat_id": chatId, "action": "typing"]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await URLSession.shared.fetchData(for: request)
     }
 
     private func sanitize(_ text: String) -> String {

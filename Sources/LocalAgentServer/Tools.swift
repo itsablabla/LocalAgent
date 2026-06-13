@@ -201,7 +201,7 @@ struct ToolExecutor {
             var request = URLRequest(url: url)
             request.setValue("Mozilla/5.0 LocalAgentServer/1.0", forHTTPHeaderField: "User-Agent")
             request.timeoutInterval = 30
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, _) = try await URLSession.shared.fetchData(for: request)
             var text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? "(binary)"
             // Strip HTML tags for readability
             text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: String.CompareOptions.regularExpression)
