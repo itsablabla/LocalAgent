@@ -63,7 +63,8 @@ struct Config {
             guard let name = d["name"] as? String, let url = d["url"] as? String else { return nil }
             let token = d["token"] as? String
             let extraHeaders = (d["headers"] as? [String: String]) ?? [:]
-            return MCPServerConfig(name: name, sseURL: url, token: token, extraHeaders: extraHeaders)
+            let transport = d["transport"] as? String ?? "sse"
+            return MCPServerConfig(name: name, sseURL: url, token: token, extraHeaders: extraHeaders, transport: transport)
         }
     }
 

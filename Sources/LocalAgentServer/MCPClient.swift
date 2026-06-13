@@ -8,6 +8,7 @@ struct MCPServerConfig {
     let sseURL: String
     let token: String?
     let extraHeaders: [String: String]
+    let transport: String  // "sse" (default) or "http"
 }
 
 actor MCPClient {
@@ -24,6 +25,99 @@ actor MCPClient {
     }
 
     func connect() async throws {
+        if config.transport == "http" {
+            try await connectHTTP()
+        } else {
+            try await connectSSE()
+        }
+    }
+
+    // MARK: - HTTP (Streamable HTTP) transport
+
+    private func connectHTTP() async throws {
+        sessionPostURL = config.sseURL
+
+        _ = try await httpRpc("initialize", params: [
+            "protocolVersion": "2024-11-05",
+            "capabilities": [:] as [String: Any],
+            "clientInfo": ["name": "LocalAgentServer", "version": "1.0"] as [String: Any]
+        ], timeoutSeconds: 15)
+
+        try await postHTTP(["jsonrpc": "2.0", "method": "notifications/initialized", "params": [:] as [String: Any]])
+
+        let resp = try await httpRpc("tools/list", params: [:], timeoutSeconds: 15)
+        if let result = resp["result"] as? [String: Any],
+           let arr = result["tools"] as? [[String: Any]] {
+            self.tools = arr.prefix(60).compactMap { parseTool($0) }
+            print("[\(config.name)] \(self.tools.count) tools loaded (http)")
+        }
+    }
+
+    private func httpRpc(_ method: String, params: [String: Any], timeoutSeconds: Double = 90) async throws -> [String: Any] {
+        guard let urlStr = sessionPostURL, let url = URL(string: urlStr) else {
+            throw MCPError.connectionFailed("no URL for \(config.name)")
+        }
+        let id = nextId; nextId += 1
+        let body: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params, "id": id]
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+        if let tok = config.token {
+            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+        }
+        for (k, v) in config.extraHeaders {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = timeoutSeconds
+
+        let (data, response) = try await URLSession.shared.fetchData(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw MCPError.connectionFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body.prefix(200))")
+        }
+
+        let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if contentType.contains("text/event-stream") {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            for line in text.components(separatedBy: "\n") {
+                if line.hasPrefix("data:") {
+                    let jsonStr = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                    if let jd = jsonStr.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: jd) as? [String: Any] {
+                        return json
+                    }
+                }
+            }
+            throw MCPError.connectionFailed("no JSON in SSE response from \(config.name)")
+        } else {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw MCPError.connectionFailed("invalid JSON from \(config.name)")
+            }
+            return json
+        }
+    }
+
+    private func postHTTP(_ body: [String: Any]) async throws {
+        guard let urlStr = sessionPostURL, let url = URL(string: urlStr) else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let tok = config.token {
+            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+        }
+        for (k, v) in config.extraHeaders {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 10
+        _ = try? await URLSession.shared.fetchData(for: req)
+    }
+
+    // MARK: - SSE transport
+
+    private func connectSSE() async throws {
         let proc = Process()
         let outPipe = Pipe()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
@@ -58,7 +152,6 @@ actor MCPClient {
             }
         }
 
-        // Wait up to 15s for session endpoint
         for _ in 0..<150 {
             if sessionPostURL != nil { break }
             try await Task.sleep(nanoseconds: 100_000_000)
@@ -176,7 +269,12 @@ actor MCPClient {
 
     func callTool(name: String, arguments: String) async throws -> String {
         let args = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any]) ?? [:]
-        let resp = try await rpc("tools/call", params: ["name": name, "arguments": args])
+        let resp: [String: Any]
+        if config.transport == "http" {
+            resp = try await httpRpc("tools/call", params: ["name": name, "arguments": args])
+        } else {
+            resp = try await rpc("tools/call", params: ["name": name, "arguments": args])
+        }
         if let err = resp["error"] as? [String: Any] {
             throw MCPError.toolError(err["message"] as? String ?? "tool error")
         }
