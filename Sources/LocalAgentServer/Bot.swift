@@ -57,6 +57,8 @@ actor Bot {
         } catch {
             let errMsg = "Error: \(error.localizedDescription)"
             print(errMsg)
+            conversationHistory.append(ChatMessage(role: "assistant", text: errMsg))
+            if conversationHistory.count > 40 { conversationHistory = Array(conversationHistory.suffix(40)) }
             try? await telegram.sendMessage(chatId: chatId, text: errMsg)
         }
     }
@@ -127,7 +129,10 @@ actor Bot {
             return finalText
         }
 
-        return "Reached maximum tool iterations (\(maxIterations))."
+        let maxText = "Reached maximum tool iterations (\(maxIterations))."
+        conversationHistory.append(ChatMessage(role: "assistant", text: maxText))
+        if conversationHistory.count > 40 { conversationHistory = Array(conversationHistory.suffix(40)) }
+        return maxText
     }
 
     private func toolCallPreview(name: String, arguments: String) -> String {
