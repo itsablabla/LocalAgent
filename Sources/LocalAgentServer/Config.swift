@@ -60,7 +60,13 @@ struct Config {
         guard let data = json.data(using: .utf8),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
         return arr.compactMap { d in
-            guard let name = d["name"] as? String, let url = d["url"] as? String else { return nil }
+            guard let name = d["name"] as? String else { return nil }
+            if let command = d["command"] as? String {
+                let args = (d["args"] as? [String]) ?? []
+                let extraEnv = (d["env"] as? [String: String]) ?? [:]
+                return MCPServerConfig(name: name, transport: "stdio", command: command, args: args, extraEnv: extraEnv)
+            }
+            guard let url = d["url"] as? String else { return nil }
             let token = d["token"] as? String
             let extraHeaders = (d["headers"] as? [String: String]) ?? [:]
             let transport = d["transport"] as? String ?? "sse"

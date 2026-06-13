@@ -8,13 +8,25 @@ struct MCPServerConfig {
     let sseURL: String
     let token: String?
     let extraHeaders: [String: String]
-    let transport: String  // "sse" (default) or "http"
+    let transport: String  // "sse" (default), "http", or "stdio"
+    let command: String?
+    let args: [String]
+    let extraEnv: [String: String]
+
+    init(name: String, sseURL: String = "", token: String? = nil,
+         extraHeaders: [String: String] = [:], transport: String = "sse",
+         command: String? = nil, args: [String] = [], extraEnv: [String: String] = [:]) {
+        self.name = name; self.sseURL = sseURL; self.token = token
+        self.extraHeaders = extraHeaders; self.transport = transport
+        self.command = command; self.args = args; self.extraEnv = extraEnv
+    }
 }
 
 actor MCPClient {
     let config: MCPServerConfig
     private var sessionPostURL: String?
     private var process: Process?
+    private var stdioInPipe: Pipe?
     private var sseBuffer = ""
     private var waiters: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var nextId = 1
@@ -27,6 +39,8 @@ actor MCPClient {
     func connect() async throws {
         if config.transport == "http" {
             try await connectHTTP()
+        } else if config.transport == "stdio" {
+            try await connectStdio()
         } else {
             try await connectSSE()
         }
@@ -267,11 +281,123 @@ actor MCPClient {
         _ = try await URLSession.shared.fetchData(for: req)
     }
 
+    // MARK: - Stdio transport
+
+    private func connectStdio() async throws {
+        guard let cmd = config.command else {
+            throw MCPError.connectionFailed("[\(config.name)] stdio transport requires 'command'")
+        }
+
+        let proc = Process()
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        proc.arguments = [cmd] + config.args
+
+        var env = ProcessInfo.processInfo.environment
+        for (k, v) in config.extraEnv { env[k] = v }
+        proc.environment = env
+
+        proc.standardInput = inPipe
+        proc.standardOutput = outPipe
+        proc.standardError = Pipe()
+
+        try proc.run()
+        self.process = proc
+        self.stdioInPipe = inPipe
+
+        let outHandle = outPipe.fileHandleForReading
+        let procCapture = proc
+        Task.detached { [weak self] in
+            var lineBuffer = ""
+            while procCapture.isRunning {
+                let data = outHandle.availableData
+                if data.isEmpty {
+                    try? await Task.sleep(nanoseconds: 20_000_000)
+                    continue
+                }
+                if let text = String(data: data, encoding: .utf8) {
+                    lineBuffer += text
+                    while let nlRange = lineBuffer.range(of: "\n") {
+                        let line = String(lineBuffer[..<nlRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                        lineBuffer = String(lineBuffer[nlRange.upperBound...])
+                        if !line.isEmpty { await self?.processStdioLine(line) }
+                    }
+                }
+            }
+        }
+
+        _ = try await stdioRpc("initialize", params: [
+            "protocolVersion": "2024-11-05",
+            "capabilities": [:] as [String: Any],
+            "clientInfo": ["name": "LocalAgentServer", "version": "1.0"] as [String: Any]
+        ], timeoutSeconds: 60)
+
+        try await stdioWrite(["jsonrpc": "2.0", "method": "notifications/initialized", "params": [:] as [String: Any]])
+
+        let resp = try await stdioRpc("tools/list", params: [:], timeoutSeconds: 30)
+        if let result = resp["result"] as? [String: Any],
+           let arr = result["tools"] as? [[String: Any]] {
+            self.tools = arr.prefix(60).compactMap { parseTool($0) }
+            print("[\(config.name)] \(self.tools.count) tools loaded (stdio)")
+        }
+    }
+
+    private func processStdioLine(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["id"] as? Int,
+              let waiter = waiters.removeValue(forKey: id) else { return }
+        waiter.resume(returning: json)
+    }
+
+    private func stdioRpc(_ method: String, params: [String: Any], timeoutSeconds: Double = 90) async throws -> [String: Any] {
+        let id = nextId; nextId += 1
+        let body: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params, "id": id]
+        return try await withCheckedThrowingContinuation { cont in
+            Task { [weak self] in
+                guard let self else {
+                    cont.resume(throwing: MCPError.connectionFailed("deallocated"))
+                    return
+                }
+                await self.storeWaiter(id: id, cont: cont)
+                do {
+                    try await self.stdioWrite(body)
+                } catch {
+                    let removed = await self.dropWaiter(id: id)
+                    if removed { cont.resume(throwing: error) }
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                guard let self else { return }
+                let removed = await self.dropWaiter(id: id)
+                if removed {
+                    cont.resume(throwing: MCPError.toolError("stdio timeout after \(Int(timeoutSeconds))s"))
+                }
+            }
+        }
+    }
+
+    private func stdioWrite(_ body: [String: Any]) async throws {
+        guard let pipe = stdioInPipe else {
+            throw MCPError.connectionFailed("no stdin pipe for \(config.name)")
+        }
+        var data = try JSONSerialization.data(withJSONObject: body)
+        data.append(0x0A)  // newline
+        pipe.fileHandleForWriting.write(data)
+    }
+
+    // MARK: - Tool dispatch
+
     func callTool(name: String, arguments: String) async throws -> String {
         let args = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any]) ?? [:]
         let resp: [String: Any]
         if config.transport == "http" {
             resp = try await httpRpc("tools/call", params: ["name": name, "arguments": args])
+        } else if config.transport == "stdio" {
+            resp = try await stdioRpc("tools/call", params: ["name": name, "arguments": args])
         } else {
             resp = try await rpc("tools/call", params: ["name": name, "arguments": args])
         }
