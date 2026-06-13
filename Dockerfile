@@ -7,6 +7,7 @@ RUN swift build -c release --product LocalAgentServer
 FROM swift:5.9-focal
 RUN apt-get update && apt-get install -y \
     libcurl4 \
+    curl \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

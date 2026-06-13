@@ -10,6 +10,7 @@ struct Config {
     let userName: String
     let systemPrompt: String
     let workDir: String
+    let mcpServers: [MCPServerConfig]
 
     static func fromEnvironment() -> Config {
         let env = ProcessInfo.processInfo.environment
@@ -39,6 +40,8 @@ struct Config {
         """
         let systemPrompt = env["SYSTEM_PROMPT"] ?? defaultSystemPrompt
 
+        let mcpServers = parseMCPServers(env["MCP_SERVERS"] ?? "[]")
+
         return Config(
             telegramBotToken: token,
             telegramChatId: chatId,
@@ -48,8 +51,18 @@ struct Config {
             assistantName: assistantName,
             userName: userName,
             systemPrompt: systemPrompt,
-            workDir: workDir
+            workDir: workDir,
+            mcpServers: mcpServers
         )
+    }
+
+    private static func parseMCPServers(_ json: String) -> [MCPServerConfig] {
+        guard let data = json.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
+        return arr.compactMap { d in
+            guard let name = d["name"], let url = d["url"] else { return nil }
+            return MCPServerConfig(name: name, sseURL: url, token: d["token"])
+        }
     }
 
     private static func formattedDate() -> String {
