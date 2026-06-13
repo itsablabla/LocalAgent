@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // MARK: - Tool definitions
 
@@ -201,8 +204,8 @@ struct ToolExecutor {
             let (data, _) = try await URLSession.shared.data(for: request)
             var text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? "(binary)"
             // Strip HTML tags for readability
-            text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            text = text.replacingOccurrences(of: "\\s{3,}", with: "\n\n", options: .regularExpression)
+            text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: String.CompareOptions.regularExpression)
+            text = text.replacingOccurrences(of: "\\s{3,}", with: "\n\n", options: String.CompareOptions.regularExpression)
             if text.count > 12000 {
                 text = String(text.prefix(12000)) + "\n...[truncated]"
             }
