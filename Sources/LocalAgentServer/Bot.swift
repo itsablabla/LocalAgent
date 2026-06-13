@@ -102,7 +102,7 @@ actor Bot {
                             result = "MCP error: \(error.localizedDescription)"
                         }
                     } else {
-                        result = await executor.execute(name: tc.function.name, arguments: tc.function.arguments)
+                        result = await executor.execute(name: tc.function.name.lowercased(), arguments: tc.function.arguments)
                     }
 
                     print("Result: \(result.prefix(120))")
