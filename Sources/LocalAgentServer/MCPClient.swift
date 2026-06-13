@@ -120,18 +120,29 @@ actor MCPClient {
         let id = nextId; nextId += 1
         let body: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params, "id": id]
         return try await withCheckedThrowingContinuation { cont in
-            waiters[id] = cont
             Task { [weak self] in
-                do { try await self?.post(body) }
-                catch {
-                    await self?.cancelWaiter(id)
-                    cont.resume(throwing: error)
+                guard let self else {
+                    cont.resume(throwing: MCPError.connectionFailed("deallocated"))
+                    return
+                }
+                await self.storeWaiter(id: id, cont: cont)
+                do {
+                    try await self.post(body)
+                } catch {
+                    let removed = await self.dropWaiter(id: id)
+                    if removed { cont.resume(throwing: error) }
                 }
             }
         }
     }
 
-    private func cancelWaiter(_ id: Int) { waiters.removeValue(forKey: id) }
+    private func storeWaiter(id: Int, cont: CheckedContinuation<[String: Any], Error>) {
+        waiters[id] = cont
+    }
+
+    private func dropWaiter(id: Int) -> Bool {
+        return waiters.removeValue(forKey: id) != nil
+    }
 
     private func post(_ body: [String: Any]) async throws {
         guard let urlStr = sessionPostURL, let url = URL(string: urlStr) else {
