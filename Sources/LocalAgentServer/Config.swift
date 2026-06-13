@@ -5,6 +5,7 @@ struct Config {
     let telegramChatId: Int
     let openRouterApiKey: String
     let openRouterModel: String
+    let llmBaseUrl: String
     let assistantName: String
     let userName: String
     let systemPrompt: String
@@ -24,6 +25,7 @@ struct Config {
         }
 
         let model = env["OPENROUTER_MODEL"] ?? "anthropic/claude-sonnet-4-5"
+        let llmBaseUrl = env["LLM_BASE_URL"] ?? "https://openrouter.ai/api/v1/chat/completions"
         let assistantName = env["ASSISTANT_NAME"] ?? "Assistant"
         let userName = env["USER_NAME"] ?? "User"
         let workDir = env["WORK_DIR"] ?? FileManager.default.currentDirectoryPath
@@ -42,6 +44,7 @@ struct Config {
             telegramChatId: chatId,
             openRouterApiKey: apiKey,
             openRouterModel: model,
+            llmBaseUrl: llmBaseUrl,
             assistantName: assistantName,
             userName: userName,
             systemPrompt: systemPrompt,

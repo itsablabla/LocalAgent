@@ -149,11 +149,12 @@ struct Usage: Decodable {
 struct OpenRouterClient {
     private let apiKey: String
     private let model: String
-    private let baseURL = "https://openrouter.ai/api/v1/chat/completions"
+    private let baseURL: String
 
-    init(apiKey: String, model: String) {
+    init(apiKey: String, model: String, baseURL: String = "https://openrouter.ai/api/v1/chat/completions") {
         self.apiKey = apiKey
         self.model = model
+        self.baseURL = baseURL
     }
 
     func complete(

@@ -11,7 +11,7 @@ actor Bot {
     init(config: Config) {
         self.config = config
         self.telegram = TelegramClient(token: config.telegramBotToken)
-        self.openRouter = OpenRouterClient(apiKey: config.openRouterApiKey, model: config.openRouterModel)
+        self.openRouter = OpenRouterClient(apiKey: config.openRouterApiKey, model: config.openRouterModel, baseURL: config.llmBaseUrl)
         self.executor = ToolExecutor(workDir: config.workDir)
     }
 
