@@ -67,10 +67,10 @@ actor MCPClient {
             "protocolVersion": "2024-11-05",
             "capabilities": [:] as [String: Any],
             "clientInfo": ["name": "LocalAgentServer", "version": "1.0"] as [String: Any]
-        ])
+        ], timeoutSeconds: 15)
         try await post(["jsonrpc": "2.0", "method": "notifications/initialized", "params": [:] as [String: Any]])
 
-        let resp = try await rpc("tools/list", params: [:])
+        let resp = try await rpc("tools/list", params: [:], timeoutSeconds: 15)
         if let result = resp["result"] as? [String: Any],
            let arr = result["tools"] as? [[String: Any]] {
             self.tools = arr.prefix(60).compactMap { parseTool($0) }
@@ -116,7 +116,7 @@ actor MCPClient {
         waiter.resume(returning: json)
     }
 
-    private func rpc(_ method: String, params: [String: Any]) async throws -> [String: Any] {
+    private func rpc(_ method: String, params: [String: Any], timeoutSeconds: Double = 90) async throws -> [String: Any] {
         let id = nextId; nextId += 1
         let body: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params, "id": id]
         return try await withCheckedThrowingContinuation { cont in
@@ -131,6 +131,14 @@ actor MCPClient {
                 } catch {
                     let removed = await self.dropWaiter(id: id)
                     if removed { cont.resume(throwing: error) }
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                guard let self else { return }
+                let removed = await self.dropWaiter(id: id)
+                if removed {
+                    cont.resume(throwing: MCPError.toolError("timeout after \(Int(timeoutSeconds))s"))
                 }
             }
         }
